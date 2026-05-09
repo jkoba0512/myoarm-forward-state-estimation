@@ -584,3 +584,142 @@ uv run pytest -m myosuite    # 22 passed (12 factory + 10 extractor) in 1.87 s
 設計判断の経緯は Obsidian 側のログを参照:
 
 - `Logs/2026-05-09-myoarm-fse-env-factory-extractor-design-decisions.md`
+
+### 2026-05-10: Step 1 (target set generator) 完了
+
+Phase 0 の target split (train / val / test / extrapolation) を生成・保存する pipeline を実装した。
+
+#### probe 結果 (実装の前提)
+
+`myoArmReachRandom-v0` の seed 再現性を実装前に実測した。
+
+```text
+env.reset(seed=0); target_pos -> A (e.g. [-0.150, -0.416, 1.201])
+env.reset(seed=0); target_pos -> B (e.g. [-0.109, -0.273, 1.759])   # A != B!
+env.reset(seed=42); env.reset(seed=42)                              # 二重 reset でも再現せず
+```
+
+原因: `ReachEnvV0.reset` の実装が `super().reset(seed=...)` の **前** に
+`generate_target_pose()` を呼ぶため、reset の seed 引数はそのコールの target 生成に効かない。
+double reset でも別 target が出る。
+
+回避策 (採用): **自前 RNG で target_pos を sample し、`mj_model.site_pos[target_sid]` に
+直接書き込んで `mujoco.mj_forward` を呼ぶ**。env の `np_random` には依存しない。
+target 値は step を跨いで persistent。
+
+```text
+target = np.random.default_rng(seed_i).uniform(low, high)
+env.reset()
+env.unwrapped.mj_model.site_pos[target_sid] = target
+mujoco.mj_forward(env.unwrapped.mj_model, env.unwrapped.mj_data)
+state = extract_state(env)   # state.target_pos == target
+```
+
+bbox は env の `target_reach_range` から取得 (myoArmReachRandom-v0 の場合
+`{'IFtip': ((-0.35, -0.42, 0.98), (0.0, -0.07, 1.83))}`)。
+
+probe の挙動が将来 MyoSuite 側で修正された場合に検出できるよう、
+`tests/test_targets_smoke.py::test_reset_seed_does_not_reproduce_target` を残してある。
+
+#### 追加ファイル
+
+```text
+configs/targets/default.yaml                # train=200 / val=50 / test=50 / extrapolation=30
+scripts/generate_targets.py                 # CLI thin wrapper
+src/myoarm_fse/envs/targets.py              # TargetSet, config, generation logic
+tests/test_targets.py                       # 38 tests, no MyoSuite
+tests/test_targets_smoke.py                 # 8 tests, @pytest.mark.myosuite
+runs/targets/{train,val,test,extrapolation}.npz   # 生成された target split
+```
+
+#### 更新ファイル
+
+```text
+pyproject.toml                              # pyyaml>=6.0 を依存に追加
+```
+
+#### 確定した API
+
+```text
+SplitConfig(name: str, n: int, seed_offset: int)              # frozen dataclass
+TargetGenerationConfig(env_id, generator_seed, output_dir, splits)
+  .from_dict(d) / .from_yaml(path)
+  .split(name) -> SplitConfig
+
+TargetSet(split, seeds, target_pos, tip_to_target_init_distance, meta)  # frozen, eq=False
+  .save(path) / .load(path) -> TargetSet
+  .n -> int
+
+generate_seed_list(generator_seed, seed_offset, n) -> np.ndarray (int64)
+generate_target_set(config, split_name, env=None) -> TargetSet
+generate_all_target_sets(config) -> dict[str, TargetSet]
+```
+
+#### 確定した実装方針
+
+- Seed rule: `seed_i = generator_seed + seed_offset + i`。`generator_seed` と各 split の
+  `seed_offset` は config で固定。constructor 時に **split 間 seed range の重複を assert**
+  (現 default は train=[0, 200)、val=[1000, 1050)、test=[2000, 2050)、extrapolation=[3000, 3030))。
+- 各 target は **per-target RNG** (`np.random.default_rng(seed_i)`) から sample。
+  全 split で1つの RNG を共有しない。
+- `target_pos` の dtype は `np.float32`、`seeds` は `np.int64`、
+  `tip_to_target_init_distance` は `np.float32`。
+- npz は `np.savez` で plain 保存。`meta` は `meta_json` (string) に JSON encode して
+  入れる (`allow_pickle=False` でロード可能)。
+- MyoSuite import は `targets.py` の **関数内 lazy import** に閉じる
+  (`generate_target_set` / `generate_all_target_sets` 内)。
+  `import myoarm_fse.envs.targets` 単体では MyoSuite 副作用が走らない。
+- `__init__.py` には `targets.py` を **再エクスポートしない**
+  (factory / extractors と同じ理由、軽量 import を守るため)。
+- workspace override / distance bin / target direct write API は Phase 0 では入れない。
+  `extrapolation` は現状 「別 seed range の held-out split」で、真の OOD ではない。
+  完了後の workspace OOD は別途追加。
+- `target_reach_range` が複数キーを持つ env は `ValueError`
+  (現 myoArm reach は単一 'IFtip' なので OK)。
+
+#### 生成結果 (`uv run python scripts/generate_targets.py --config configs/targets/default.yaml`)
+
+```text
+runs/targets/train.npz          n=200  init_distance min=0.340 mean=0.780 max=1.223
+runs/targets/val.npz            n=50   init_distance min=0.382 mean=0.821 max=1.217
+runs/targets/test.npz           n=50   init_distance min=0.398 mean=0.825 max=1.162
+runs/targets/extrapolation.npz  n=30   init_distance min=0.478 mean=0.800 max=1.170
+```
+
+distance は `||tip_pos - target_pos||` (reset 直後)。約 0.3〜1.2 m の範囲で
+myoArm reach の物理的な可到達範囲としては妥当。
+
+#### 検証
+
+```bash
+uv run pytest                # default: 230 passed, 30 deselected in 0.21 s
+uv run pytest -m myosuite    # 30 passed (12 factory + 10 extractor + 8 targets) in 2.77 s
+```
+
+合計 260 tests:
+
+```text
+test_action_adapter.py        39 passed     (軽量)
+test_noise.py                 45 passed     (軽量)
+test_state_schema.py          58 passed     (軽量)
+test_wrappers.py              49 passed     (軽量)
+test_targets.py               38 passed     (軽量, new)
+test_package.py                1 passed     (軽量)
+test_env_factory_smoke.py     12 passed     (myosuite)
+test_env_extractor_smoke.py   10 passed     (myosuite)
+test_targets_smoke.py          8 passed     (myosuite, new)
+```
+
+これで Step 1 (target set generator) は完了。
+
+未着手:
+
+- Step 5: episode logger
+- Step 6: baseline controllers (random / hold / PD)
+- Step 7: reaching metrics
+- Step 8: forward model baseline (MLP)
+
+設計判断の経緯と probe 結果は Obsidian 側のログを参照:
+
+- `Logs/2026-05-10-myoarm-fse-target-set-design-decisions.md`
+- `Logs/2026-05-10-myoarm-fse-target-set-design-decisions-answer.md`

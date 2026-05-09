@@ -1,0 +1,29 @@
+# Default target set generation config for Phase 0.
+#
+# Each target_pos is sampled in this module from
+#   np.random.default_rng(generator_seed + seed_offset + i).uniform(low, high)
+# where (low, high) come from the env's intrinsic target_reach_range. The
+# env's internal np_random is NOT used (its seed handling does not control
+# target generation; see Step 1 probe results in 02_InitialImplementationPlan.md).
+#
+# Phase 0 note: `extrapolation` is currently a held-out split with the same
+# intrinsic range as train/val/test. True out-of-distribution targets
+# (workspace override) are deferred to a later iteration.
+
+env_id: myoArmReachRandom-v0
+generator_seed: 0
+output_dir: runs/targets
+
+splits:
+  train:
+    n: 200
+    seed_offset: 0
+  val:
+    n: 50
+    seed_offset: 1000
+  test:
+    n: 50
+    seed_offset: 2000
+  extrapolation:
+    n: 30
+    seed_offset: 3000
