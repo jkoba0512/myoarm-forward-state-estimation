@@ -1,0 +1,502 @@
+# Initial Implementation Plan
+
+作成日: 2026-05-09
+
+対象: `docs/01_Project1_ForwardStateEstimation研究計画.md` の Phase 0 から Phase 1 baseline まで。
+
+## 目的
+
+最初の実装では、forward model と Kalman-like estimator の性能比較に入る前に、再現可能な myoArm reaching データセットを作るための共通基盤を固める。
+
+成功条件:
+
+- 固定 target split を生成・保存できる。
+- myoArm episode を同じ schema で記録できる。
+- `neural_command` / `excitation` / `api_action` / `activation` を分けて保存できる。
+- delay / observation noise / signal-dependent motor noise を独立に切り替えられる。
+- 最小 controller で smoke rollout と metric 集計ができる。
+
+## 実装ステップ
+
+### Step 1: Config と target set
+
+追加候補:
+
+- `src/myoarm_fse/config.py`
+- `src/myoarm_fse/envs/targets.py`
+- `configs/targets/default.yaml`
+- `scripts/generate_targets.py`
+- `tests/test_targets.py`
+
+内容:
+
+- train / validation / test / extrapolation の target split を生成する。
+- seed、各 split の target 数、workspace bounds、z 高さ、距離 bin を config 化する。
+- 出力は `runs/targets/*.npz` または `*.json` に保存する。
+
+最初の検証:
+
+```bash
+uv run python scripts/generate_targets.py --config configs/targets/default.yaml
+uv run pytest tests/test_targets.py
+```
+
+### Step 2: Observation/state schema
+
+追加候補:
+
+- `src/myoarm_fse/envs/state.py`
+- `tests/test_state_schema.py`
+
+内容:
+
+- `qpos`, `qvel`, `act`, `tip_pos`, `target_pos`, `reach_err` を `x_t` として抽出する関数を作る。
+- Gym observation と MuJoCo internals の差分を吸収する薄い adapter を置く。
+- shape と dtype を明示する。
+
+最初の検証:
+
+```bash
+uv run python -c "import myosuite, gymnasium as gym; env = gym.make('myoArmReachFixed-v0')"
+uv run pytest tests/test_state_schema.py
+```
+
+### Step 3: Action adapter と motor noise
+
+追加候補:
+
+- `src/myoarm_fse/envs/actions.py`
+- `src/myoarm_fse/envs/noise.py`
+- `tests/test_actions.py`
+- `tests/test_noise.py`
+
+内容:
+
+- controller 出力を `neural_command` / `excitation` として扱い、Gym に渡す `api_action` へ変換する。
+- `SignalDependentMotorNoise` を実装する。
+- clipping range と random seed の再現性をテストする。
+
+### Step 4: Delay/noisy observation wrappers
+
+追加候補:
+
+- `src/myoarm_fse/envs/wrappers.py`
+- `tests/test_wrappers.py`
+
+内容:
+
+- `DelayedObservationWrapper`
+- `NoisyObservationWrapper`
+- delay steps と Gaussian observation noise を config から切り替える。
+- delay 0 / noise 0 のとき identity になることをテストする。
+
+### Step 5: Episode logger
+
+追加候補:
+
+- `src/myoarm_fse/data/logger.py`
+- `src/myoarm_fse/data/schema.py`
+- `scripts/collect_episodes.py`
+- `tests/test_episode_logger.py`
+
+保存 schema:
+
+```text
+episode_id
+step
+time
+qpos
+qvel
+act
+tip_pos
+target_pos
+reach_err
+neural_command
+excitation
+api_action
+mj_data.ctrl
+reward
+terminated
+truncated
+```
+
+最初は `npz` を標準にする。分析しやすさが必要になった段階で `parquet` 追加を検討する。
+
+### Step 6: Baseline controllers
+
+追加候補:
+
+- `src/myoarm_fse/controllers/random.py`
+- `src/myoarm_fse/controllers/hold.py`
+- `src/myoarm_fse/controllers/pd_endpoint.py`
+- `tests/test_controllers.py`
+
+最初に入れる controller:
+
+- random excitation
+- low-amplitude random excitation
+- static hold
+
+PD endpoint controller は state schema と action adapter が安定してから追加する。
+
+### Step 7: Metrics
+
+追加候補:
+
+- `src/myoarm_fse/metrics/reaching.py`
+- `src/myoarm_fse/metrics/prediction.py`
+- `tests/test_metrics.py`
+
+最初に実装する metrics:
+
+- minimum tip error
+- final tip error
+- success rate
+- effort / activation norm
+- one-step prediction MSE
+- rollout MSE
+
+jerk、overshoot、oscillation index、recovery time は episode logger の出力が安定してから追加する。
+
+### Step 8: Forward model baseline
+
+追加候補:
+
+- `src/myoarm_fse/models/datasets.py`
+- `src/myoarm_fse/models/mlp.py`
+- `scripts/train_forward_model.py`
+- `scripts/evaluate_rollout.py`
+- `configs/models/mlp.yaml`
+
+最初の model:
+
+- residual MLP: `[x_t, u_t] -> delta x_t`
+
+最初の評価:
+
+- one-step MSE
+- 10-step rollout MSE
+- 50-step rollout MSE
+- tip prediction error
+
+GRU / LSTM / CfC / LTC は、MLP baseline と dataset schema が固定された後に比較対象として追加する。
+
+## 最初のPR相当の到達点
+
+最初のまとまった実装単位は、Phase 0 の共通基盤に限定する。
+
+含めるもの:
+
+- target set generator
+- state/action adapters
+- motor noise
+- delay/noise wrappers
+- episode logger
+- random/hold controllers
+- reaching metrics
+- smoke tests
+
+含めないもの:
+
+- forward model training loop
+- Kalman-like estimator
+- adaptive/learned gain
+- CfC / LTC 比較
+
+## 推奨コマンド
+
+初期確認:
+
+```bash
+uv lock
+uv run python -c "import myoarm_fse; print(myoarm_fse.__version__)"
+uv run pytest
+```
+
+Phase 0 実装後の smoke run:
+
+```bash
+uv run python scripts/generate_targets.py --config configs/targets/default.yaml
+uv run python scripts/collect_episodes.py --episodes 2 --controller random --target-split validation
+uv run pytest
+```
+
+## 実装進捗ログ
+
+### 2026-05-09: Step 3 (ActionAdapter のみ) 完了
+
+Step 3 のうち ActionAdapter 部分を実装した。SDN (`noise.py`) は別タスクとして未実装。
+
+追加ファイル:
+
+- `src/myoarm_fse/envs/__init__.py` (`ActionAdapter` と `detect_action_dim` を re-export)
+- `src/myoarm_fse/envs/actions.py`
+- `tests/test_action_adapter.py` (39 tests)
+
+確定した layer 区別 (ActionAdapter スコープ):
+
+- `excitation` ∈ `[0, 1]^n`: 研究側 canonical 表現。
+- `api_action` ∈ `[-1, 1]^n`: Gym/MyoSuite に渡す入力。
+- `neural_command`: controller 側の責務 (ActionAdapter は扱わない)。
+- `activation`: 筋モデル内部状態 (ActionAdapter は扱わない)。
+- `mj_data.ctrl`: `env.step` 後に検査する MuJoCo 最終 actuator control (logger 側で post-step 検査)。
+
+確定した API:
+
+```text
+ActionAdapter(action_dim: int)
+  .action_dim
+  .excitation_to_api_action(x) -> np.float32 (n,)
+  .api_action_to_excitation(a) -> np.float32 (n,)
+  .clip_excitation(x)          -> np.float32 (n,)
+  .clip_api_action(a)          -> np.float32 (n,)
+
+detect_action_dim(env) -> int   # env.action_space.shape のみ参照、low/high は検証しない
+```
+
+確定した実装方針:
+
+- 出力 dtype は `np.float32` 固定。入力 dtype は暗黙キャストで吸収。
+- 入力は 1-D の numpy array-like (list / tuple / ndarray)。2-D batch / 0-D scalar は `ValueError`。
+- shape mismatch、NaN / Inf は `ValueError` で弾く。
+- レンジ外は silent clip。
+- torch tensor は明示サポートしない (numpy 境界で変換する責務は controller 側)。
+- `action_dim` は `int` かつ `> 0`。`bool` は `int` の subclass だが `ValueError` で弾く。
+- `detect_action_dim` の `low/high` 検証は env factory 側に回す。`strict=True` parameter は今は追加しない。
+
+設計判断の経緯は Obsidian 側のログを参照:
+
+- `Logs/2026-05-09-myoarm-fse-action-adapter-open-questions.md`
+- `Logs/2026-05-09-myoarm-fse-action-adapter-open-questions-answer.md`
+- `Logs/2026-05-09-myoarm-fse-action-adapter-ready-to-implement.md`
+
+検証:
+
+```bash
+uv run pytest    # 40 passed (39 action_adapter + 1 package)
+```
+
+未着手 (Step 3 残り、および後続):
+
+- `src/myoarm_fse/envs/noise.py` (`SignalDependentMotorNoise`)
+- Step 4: `DelayedObservationWrapper` / `NoisyObservationWrapper`
+- Step 5 以降: episode logger、controllers、metrics、forward model
+
+### 2026-05-09: Step 3 (SignalDependentMotorNoise) 完了
+
+Step 3 残りの SDN を実装し、Step 3 全体を完了とする。
+
+追加ファイル:
+
+- `src/myoarm_fse/envs/noise.py`
+- `tests/test_noise.py` (45 tests)
+
+更新ファイル:
+
+- `src/myoarm_fse/envs/__init__.py` (`SignalDependentMotorNoise` を re-export 追加)
+
+確定した layer 位置:
+
+```text
+controller -> excitation_command  ([0, 1]^n, raw)
+              ↓ SDN.apply()
+              excitation         ([0, 1]^n, post-noise + clip)  -- 研究側 canonical
+              ↓ ActionAdapter.excitation_to_api_action()
+              api_action          ([-1, 1]^n)
+              ↓ env.step()
+```
+
+確定した API:
+
+```text
+SignalDependentMotorNoise(action_dim: int, sigma, rng=None)
+  .action_dim
+  .sigma                      # property, float
+  .rng                        # property, np.random.Generator
+  .apply(excitation_command) -> np.float32 (n,)
+  .__call__ == .apply
+  .reset(seed: int | None)    # rng 再シード
+```
+
+Noise model (`01` Phase 0.3 と一致):
+
+```text
+noise = sigma * |u| * N(0, 1)        # element-wise independent
+out = clip(u + noise, 0, 1)
+```
+
+確定した実装方針:
+
+- `excitation` 専用 (api_action や activation には触らない)。
+- element-wise independent (cross-muscle 相関なし)。`rng.standard_normal(size=(n,), dtype=np.float32)`。
+- 出力 dtype は `np.float32` 固定。入力 dtype は暗黙キャストで吸収。
+- shape/finite validation は ActionAdapter と同型 (1-D, action_dim 一致, NaN/Inf 拒否)。
+- `sigma` 検証: `int | float | np.floating` を許容、`bool` は拒否、`np.isfinite(sigma) and sigma >= 0` を要求、内部で `float(sigma)` に正規化。
+- `sigma == 0` は **「validation + clip only」** (恒等ではない)。範囲外入力は clip される。RNG は消費しない (高速パス)。
+- `rng` 受け取り: `None` → fresh `default_rng()`、`int` → `default_rng(seed)`、`np.random.Generator` → そのまま。`np.random.RandomState` は legacy として非対応。`bool` も拒否。
+- `reset(seed)` で再シード可能 (再現性テスト用)。`seed=None` で独立 rng に切り替え。
+
+検証:
+
+```bash
+uv run pytest    # 85 passed (40 action_adapter + 45 noise + 1 package)
+```
+
+これで Step 3 (action adapter + motor noise) は完了。
+
+未着手 (Step 4 以降):
+
+- Step 4: `DelayedObservationWrapper` / `NoisyObservationWrapper`
+- Step 5 以降: episode logger、controllers、metrics、forward model
+
+### 2026-05-09: Step 2 (state schema) 完了
+
+計画書上の番号としては Step 2 だが、実装順序として Step 3 完了後に着手した。理由は Obsidian Logs (`2026-05-09-myoarm-fse-session-recovery-and-step-order`) に記載: raw obs vector に直接 delay/noise を乗せる前に、field 単位で扱える state schema を固める方が安全なため。Step 4 wrapper の前提として Step 2 を先行させた。
+
+追加ファイル:
+
+- `src/myoarm_fse/envs/state.py`
+- `tests/test_state_schema.py` (58 tests)
+
+更新ファイル:
+
+- `src/myoarm_fse/envs/__init__.py` (`MyoArmState`, `StateSpec` を re-export 追加)
+
+スコープ: **pure schema layer のみ**。raw observation vector の slicing と MyoSuite import は本ステップでは入れない (後続の env extractor で対応)。
+
+確定した API:
+
+```text
+StateSpec(qpos_dim: int, qvel_dim: int, act_dim: int)   # frozen dataclass
+  .qpos_dim / .qvel_dim / .act_dim
+  .dim                          # qpos_dim + qvel_dim + act_dim + 9
+  .layout() -> dict[str, slice] # field 名 → flat vector 上の slice
+
+MyoArmState(qpos, qvel, act, tip_pos, target_pos, reach_err)   # frozen, eq=False
+  .qpos / .qvel / .act          # 1-D float32, env-dependent length
+  .tip_pos / .target_pos / .reach_err  # shape (3,) float32
+  .spec() -> StateSpec
+  .flatten() -> np.ndarray (D,) float32
+
+MyoArmState.from_arrays(...)    # array-like を float32 に coerce
+MyoArmState.unflatten(vec, spec: StateSpec) -> MyoArmState
+```
+
+確定した実装方針:
+
+- **Field 宣言順 = flatten 順**を single source of truth とする。順序は `qpos / qvel / act / tip_pos / target_pos / reach_err`。
+- 出力 dtype は `np.float32` 固定。`from_arrays` は array-like を coerce、直接コンストラクタは `np.ndarray` のみ受け、`np.float32` でない場合は `ValueError`。
+- `qpos / qvel / act` は 1-D (env/model 依存の長さ)。`tip_pos / target_pos / reach_err` は shape `(3,)` 固定。
+- shape mismatch、NaN / Inf は `ValueError`。batch (2-D) input は受けない。
+- `reach_err = tip_pos - target_pos` の vector として確定。scalar reach error は metrics 側で `np.linalg.norm(state.reach_err)` で計算する責務。
+- consistency check (`reach_err ≈ tip_pos - target_pos`) は本ステップでは入れない (将来 strict 版で追加可)。
+- `@dataclass(frozen=True, eq=False)` を採用。`eq=True` だと ndarray fields で `__eq__` / `__hash__` が壊れるため `eq=False` 明示。
+- `StateSpec` の dim は `int` かつ `> 0`、`bool` は明示拒否 (ActionAdapter / SDN と同型の検証)。
+- Layer 境界: `MyoArmState` は **true (oracle) state**。controller には oracle baseline 以外で渡さない。delayed/noisy observation は Step 4 で別途構築する。
+
+検証:
+
+```bash
+uv run pytest    # 143 passed (39 action_adapter + 45 noise + 58 state_schema + 1 package)
+```
+
+未着手 (Step 4 以降):
+
+- Step 4: `DelayedObservationWrapper` / `NoisyObservationWrapper`
+- Step 1: target set generator (Step 2/4 と独立に進められる)
+- Step 5 以降: episode logger、controllers、metrics、forward model
+
+設計判断の経緯は Obsidian 側のログを参照:
+
+- `Logs/2026-05-09-myoarm-fse-state-schema-design-decisions.md`
+- `Logs/2026-05-09-myoarm-fse-state-schema-design-decisions-answer.md`
+
+### 2026-05-09: Step 4 (DelayedObservationWrapper / NoisyObservationWrapper) 完了
+
+Step 2 (state schema) 完了後に着手。`gymnasium.Wrapper` を継承しない pure な observation 変換層として実装。env への結合は後続の env factory / extractor 側責務とする。
+
+追加ファイル:
+
+- `src/myoarm_fse/envs/wrappers.py`
+- `tests/test_wrappers.py` (49 tests)
+
+更新ファイル:
+
+- `src/myoarm_fse/envs/__init__.py` (`DelayedObservationWrapper`, `NoisyObservationWrapper` を re-export 追加)
+
+確定した API:
+
+```text
+DelayedObservationWrapper(spec: StateSpec, delay_steps: int)
+  .spec / .delay_steps
+  .reset(initial_state: MyoArmState) -> None     # delay_steps > 0 で必須
+  .observe(true_state: MyoArmState) -> MyoArmState
+  .__call__ == .observe
+
+NoisyObservationWrapper(spec: StateSpec, sigma: dict[str, float], rng=None)
+  .spec / .sigma / .rng
+  .reset(seed: int | None = None) -> None        # rng 再シード用
+  .observe(state: MyoArmState) -> MyoArmState
+  .__call__ == .observe
+```
+
+Layer 位置:
+
+```text
+true MyoArmState
+    ↓ NoisyObservationWrapper.observe (additive Gaussian per-field, no clipping)
+    ↓ DelayedObservationWrapper.observe (ring buffer of length delay_steps)
+    or 逆順 (composition は呼び出し側で選ぶ)
+controller-facing MyoArmState   # oracle baseline 以外で controller に渡すのはこちら
+```
+
+Delay timing semantics (`delay_steps = k` のとき `observe(s_t) -> s_{t-k}`):
+
+```text
+reset(s0): buffer (length k) を s0 で埋める
+observe(s_t): 最古エントリを返す + buffer 内で s_t に置き換え (ring head 更新)
+
+例 (delay_steps=2):
+  reset(s0); observe(s1)->s0; observe(s2)->s0; observe(s3)->s1; observe(s4)->s2
+```
+
+Noise model (additive Gaussian、SDN とは別物):
+
+```text
+out_field = in_field + sigma_field * N(0, 1)         # element-wise independent
+clipping は行わない
+```
+
+確定した実装方針:
+
+- 入出力は **`MyoArmState`**、内部 buffer / noise 計算は **flat `np.ndarray`** (`StateSpec.layout()` で field slice を取得)。
+- delay 単位は **`delay_steps` (int)** のみ。ms 変換は config / env factory 側責務。`from_ms` classmethod は今回入れない。
+- `delay_steps == 0` は **identity 高速パス** (reset 不要、buffer は確保しない)。
+- `delay_steps > 0` で reset 前に `observe` を呼ぶと **`RuntimeError`**。
+- 内部 buffer 長は `delay_steps` (k+1 ではなく k)。ring buffer + head index で実装。
+- noise sigma は **per-field `dict[str, float]`** のみ。unknown key は `ValueError`、`bool` 拒否、`np.isfinite` and `>= 0` を要求。
+- `sigma == {}` または all-zero は **identity 高速パス** (rng は消費しない)。
+- noise は **clipping しない** (observation noise は signal の range 制約と別物。`qpos`, `qvel`, `tip_pos` は自然な bound を持たない)。
+- rng の扱いは SDN と同型 (`None` / `int` / `np.random.Generator`、`bool` 拒否、`RandomState` 非対応)。
+- 入力 state の `.spec()` が wrapper の `spec` と一致しなければ `ValueError`。
+- 両 wrapper とも `__call__ == .observe`。
+- `gymnasium.Wrapper` 継承、raw obs slicing、MyoSuite import、`env.unwrapped` 抽出は **本ステップに含まない** (env factory 側責務)。
+
+検証:
+
+```bash
+uv run pytest    # 192 passed (39 action_adapter + 45 noise + 58 state_schema + 49 wrappers + 1 package)
+```
+
+これで Step 4 (delay / noisy observation wrappers) は完了。Phase 0 共通基盤の env-side (Step 2 / 3 / 4) が一段落。
+
+未着手:
+
+- Step 1: target set generator (Step 2-4 と独立に進められる)
+- Step 5: episode logger (Step 2 schema / Step 3 SDN / Step 4 wrappers をすべて使う)
+- Step 6 以降: baseline controllers、metrics、forward model
+
+設計判断の経緯は Obsidian 側のログを参照:
+
+- `Logs/2026-05-09-myoarm-fse-observation-wrappers-design-decisions.md`
+- `Logs/2026-05-09-myoarm-fse-observation-wrappers-design-decisions-answer.md`
