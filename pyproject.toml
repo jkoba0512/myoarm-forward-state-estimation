@@ -34,3 +34,7 @@ target-version = "py311"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "myosuite: tests that require MyoSuite + MuJoCo (opt-in via -m myosuite)",
+]
+addopts = "-m 'not myosuite'"
