@@ -500,3 +500,87 @@ uv run pytest    # 192 passed (39 action_adapter + 45 noise + 58 state_schema + 
 
 - `Logs/2026-05-09-myoarm-fse-observation-wrappers-design-decisions.md`
 - `Logs/2026-05-09-myoarm-fse-observation-wrappers-design-decisions-answer.md`
+
+### 2026-05-09: Option B (env factory + extractor) 完了
+
+Phase 0 共通基盤の env-side pure components (Step 2 / 3 / 4) と MyoSuite 実環境を初めて接続する層。`gym.make` で myoArm env を立て、`MyoArmState` を抽出する責務に限定。target 機構は Step 1、logger は Step 5 に分ける。
+
+追加ファイル:
+
+- `src/myoarm_fse/envs/factory.py`
+- `src/myoarm_fse/envs/extractors.py`
+- `tests/test_env_factory_smoke.py` (12 tests, `@pytest.mark.myosuite`)
+- `tests/test_env_extractor_smoke.py` (10 tests, `@pytest.mark.myosuite`)
+
+更新ファイル:
+
+- `pyproject.toml` (`markers = ["myosuite: ..."]` と `addopts = "-m 'not myosuite'"` を追加)
+- `src/myoarm_fse/envs/__init__.py` (factory / extractors は **意図的に re-export しない**。理由は後述)
+
+確定した API:
+
+```text
+make_env(env_id: str, horizon: int = 600, normalize_act: bool = True) -> gym.Env
+  - registry-level horizon override (env.unwrapped.horizon は read-only property)
+  - normalize_act は gym.make の kwarg として渡す
+  - env.spec.max_episode_steps == env.unwrapped.horizon を assert
+
+extract_state(env) -> MyoArmState
+  - env.unwrapped.mj_data から qpos / qvel / act を直読
+  - tip_pos, target_pos は env.unwrapped.mj_data.site_xpos[tip_sids[0] / target_sids[0]]
+  - reach_err = tip_pos - target_pos (本プロジェクト convention)
+
+extract_ctrl(env) -> np.ndarray (float32)
+  - env.unwrapped.last_ctrl の copy (post-sigmoid muscle ctrl)
+```
+
+実測で記録した myoArm reach 環境の仕様 (myoArmReachFixed-v0):
+
+```text
+env.unwrapped class:           ReachEnvV0 (myosuite.envs.myo.myobase.reach_v0)
+action_space:                  Box(-1.0, 1.0, (34,), float32)   # normalize_act=True 前提
+observation_space.shape:       (80,)
+qpos / qvel / act dim:         20 / 20 / 34
+dt:                            0.02 s (control timestep)
+default horizon:               150  → 本 factory で 600 に override
+tip_sids:                      [334]   (single site)
+target_sids:                   [0]     (single site)
+target_reach_range key:        'IFtip'
+mj_data path:                  env.unwrapped.mj_data            (sim.data ではない)
+mj_data fields:                qpos (20,), qvel (20,), act (34,), ctrl (34,)
+                               site_xpos (387, 3)
+last_ctrl initial value:       ~0.0759 (sigmoid(0 - 0.5)*5 = neutral)
+obs_dict keys:                 time, qpos, qvel, act, tip_pos, target_pos, reach_err
+```
+
+実装中に発見した重要な MyoSuite 仕様の罠 (extractor の docstring と smoke test に記録済み):
+
+- **`unwrapped.horizon` は read-only property** で `gym.spec(env_id).max_episode_steps` を参照する。`gym.make(env_id, max_episode_steps=600)` だけでは registry が更新されないため、factory は `gym.spec(env_id).max_episode_steps = horizon` を make の前に実行する。これは process-global な副作用が残ることを意味する (docstring に明記)。
+- **`obs_dict['qvel']` は `mj_data.qvel * dt`** (per-step displacement) で、生の velocity ではない。extractor は `mj_data.qvel` を直読する。
+- **`obs_dict['reach_err']` は `target_pos - tip_pos`** (本プロジェクトの逆符号)。extractor は `tip_pos - target_pos` を自分で計算し、obs_dict の reach_err は使わない。
+- **`mj_data.ctrl` は post-step に reset される挙動**が観測される (api_action=0.5 で step した直後に `mj_data.ctrl=0`)。`last_ctrl` の方が「実際に muscle に渡った post-sigmoid ctrl」を保持する。logger では `last_ctrl` を採用。
+
+設計判断ノート (`...env-factory-extractor-design-decisions`) からの **意図的な逸脱**:
+
+- **`__init__.py` に factory / extractors を re-export しない**。理由は、`__init__.py` で `from myoarm_fse.envs.factory import make_env` すると `myosuite` の import 副作用 (env id 登録、~200-300 ms、banner 出力) が `myoarm_fse.envs` を import するすべての test (例: `test_action_adapter.py`) で発生し、軽量 unit test の収集コストが跳ね上がるため。Q4 の「import 副作用の局所化」を優先し、Q8 の re-export 案は実装しなかった。利用側は fully qualified path (`from myoarm_fse.envs.factory import make_env`) で import する。
+
+検証:
+
+```bash
+uv run pytest                # default: 192 passed, 22 deselected in 0.19 s
+uv run pytest -m myosuite    # 22 passed (12 factory + 10 extractor) in 1.87 s
+```
+
+合計 214 tests (192 軽量 + 22 MyoSuite smoke)。
+
+これで Project 0 共通基盤の env-side が完全に揃った: pure components (Step 2 / 3 / 4) + MyoSuite 接続層 (Option B)。
+
+未着手:
+
+- Step 1: target set generator (Step 5 に直接必要、Option B の知見を活かして Random env の seed 再現性を実測確認する)
+- Step 5: episode logger (Step 2 schema / Step 3 SDN / Step 4 wrappers / Option B factory + extractors を統合)
+- Step 6 以降: baseline controllers、metrics、forward model
+
+設計判断の経緯は Obsidian 側のログを参照:
+
+- `Logs/2026-05-09-myoarm-fse-env-factory-extractor-design-decisions.md`
