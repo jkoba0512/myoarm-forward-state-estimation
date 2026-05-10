@@ -3,6 +3,7 @@
 from myoarm_fse.models.datasets import (
     TransitionDataset,
     build_transitions,
+    concat_datasets,
     shuffle_transitions,
     split_by_episode,
     split_by_local_indices,
@@ -23,6 +24,7 @@ __all__ = [
     # datasets
     "TransitionDataset",
     "build_transitions",
+    "concat_datasets",
     "shuffle_transitions",
     "split_by_episode",
     "split_by_local_indices",

@@ -14,18 +14,17 @@ Limited CLI overrides for ad-hoc experiments::
 from __future__ import annotations
 
 import argparse
-import json
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import yaml
 
 from myoarm_fse.models import (
     ForwardMLP,
     TrainConfig,
     TransitionDataset,
+    concat_datasets,
     load_model,  # noqa: F401  -- exposed for ad-hoc REPL use
     make_model_id,
     make_train_val_split,
@@ -61,47 +60,17 @@ def _apply_overrides(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str,
 
 
 def _load_concat_dataset(paths: list[str]) -> TransitionDataset:
+    """Load each path and merge with ``concat_datasets``.
+
+    Wraps the library helper so the CLI body stays focused on training.
+    Episode_id collisions across runs (each starts numbering from 0)
+    are handled by ``concat_datasets`` by rewriting to a global
+    sequential id and stashing the original under
+    ``source_episode_id`` in the metadata.
+    """
     if not paths:
         raise ValueError("data.dataset_paths must contain at least one path")
-    parts = [TransitionDataset.load(p) for p in paths]
-    if len(parts) == 1:
-        return parts[0]
-    state_dim = parts[0].state_dim
-    action_dim = parts[0].action_dim
-    for ds in parts[1:]:
-        if ds.state_dim != state_dim or ds.action_dim != action_dim:
-            raise ValueError(
-                "all datasets must share state_dim/action_dim "
-                f"({state_dim}, {action_dim})"
-            )
-    # Reindex episode_index to be unique across the concatenation.  Source
-    # runs each number their own episodes from 0, so concatenating without
-    # rewriting episode_id would make split_by_episode collapse colliding
-    # ids (e.g. all episodes named "0") into a single split.  Preserve the
-    # source id under "source_episode_id" and reassign episode_id to a
-    # global sequential index.
-    new_episode_indexes: list[np.ndarray] = []
-    new_metadata: list[dict[str, Any]] = []
-    offset = 0
-    for ds in parts:
-        new_episode_indexes.append(ds.episode_index + offset)
-        for local_idx, meta in enumerate(ds.episode_metadata):
-            entry = dict(meta)
-            entry["source_episode_id"] = entry.get("episode_id")
-            entry["episode_id"] = offset + local_idx
-            new_metadata.append(entry)
-        offset += ds.n_episodes
-    return TransitionDataset(
-        x=np.concatenate([ds.x for ds in parts], axis=0),
-        u=np.concatenate([ds.u for ds in parts], axis=0),
-        x_next=np.concatenate([ds.x_next for ds in parts], axis=0),
-        dx=np.concatenate([ds.dx for ds in parts], axis=0),
-        episode_index=np.concatenate(new_episode_indexes, axis=0),
-        state_dim=state_dim,
-        action_dim=action_dim,
-        n_episodes=offset,
-        episode_metadata=tuple(new_metadata),
-    )
+    return concat_datasets([TransitionDataset.load(p) for p in paths])
 
 
 def main(argv: list[str] | None = None) -> Path:

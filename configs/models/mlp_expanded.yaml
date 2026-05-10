@@ -1,0 +1,37 @@
+# Residual MLP training config for the expanded baseline dataset.
+#
+# Same architecture and hyperparameters as configs/models/mlp.yaml
+# (the Phase 0 baseline) but trained on runs/datasets/expanded.npz —
+# the merged dataset of the original 3 baseline runs (2 episodes each)
+# plus the 50-episode lowamp and 50-episode random runs collected in
+# the post-fixed-Kalman improvement cycle. Total ~51k transitions
+# across 106 episodes, vs baseline_3way's ~3.6k across 6 episodes.
+#
+# Saved models go to runs/models/{model_id}/ as usual; downstream
+# evaluate_estimator.py can point at the new model_id by overriding
+# fixed_kalman_default.yaml's `forward_model:` field.
+
+seed: 0
+
+architecture:
+  hidden_dims: [256, 256]
+
+train:
+  optimizer: adam
+  lr: 1.0e-3
+  weight_decay: 0.0
+  batch_size: 256
+  epochs: 200
+  early_stopping_patience: 20
+  early_stopping_min_delta: 0.0
+  val_step: 5
+
+data:
+  dataset_paths:
+    - runs/datasets/expanded.npz
+
+eval:
+  rollout_horizons: [1, 10, 50]
+
+output:
+  output_root: runs/models

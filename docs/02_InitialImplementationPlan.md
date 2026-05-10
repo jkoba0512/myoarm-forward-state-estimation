@@ -1525,3 +1525,154 @@ Project 1:
 設計判断の経緯は Obsidian 側のログを参照:
 
 - `Logs/2026-05-10-myoarm-fse-phase3-fixed-gain-kalman-design-decisions.md`
+
+### 2026-05-10: Forward model improvement cycle (Phase A + B + 再評価) 完了
+
+Phase 3.1 grid sweep で観察した「K=0 prediction-only の 49 m 級発散」を受けて、Forward model の改善サイクルを実施。研究計画書に直接対応するフェーズ番号はないが、Project 1 における基礎品質改善 として位置づけ。実施計画ノート (`Logs/2026-05-10-myoarm-fse-next-implementation-plan-after-fixed-kalman`) の Phase A (dataset 拡大) + Phase B (concat_datasets library 化) + 再評価まで完了。Phase C (per-field standardization) と Phase D (multi-step rollout loss) は **不要と判断** (改善幅が大きすぎたため)。
+
+#### 追加・更新ファイル
+
+```text
+# Library 拡張
+src/myoarm_fse/models/datasets.py        # concat_datasets() を追加
+src/myoarm_fse/models/__init__.py        # concat_datasets を re-export
+tests/test_model_datasets.py             # +10 tests for concat_datasets
+
+# CLI 簡素化
+scripts/train_forward_model.py           # _load_concat_dataset を concat_datasets() 呼び出しに置換、
+                                         # 不要になった numpy/json import を削除
+
+# 設定追加
+configs/models/mlp_expanded.yaml         # expanded.npz training config (baseline mlp.yaml と並列)
+
+# 生成物 (gitignore)
+runs/episodes/2026-05-10T07-18-17Z/      # lowamp 50 episodes
+runs/episodes/2026-05-10T07-18-48Z/      # random 50 episodes
+runs/datasets/expanded.npz               # N=51534, n_episodes=106
+runs/models/2026-05-10T07-25-23Z/        # improved MLP
+runs/estimators/2026-05-10T07-25-42Z/    # 再評価 grid sweep 結果
+```
+
+#### concat_datasets API
+
+```python
+def concat_datasets(datasets: Iterable[TransitionDataset]) -> TransitionDataset:
+    """Concatenate multiple TransitionDatasets, rewriting episode_id to a
+    global sequential index. Original IDs are preserved under
+    `source_episode_id` and `source_dataset_index` in the merged metadata.
+    state_dim/action_dim mismatches raise ValueError; empty datasets in
+    the iterable are tolerated and contribute nothing."""
+```
+
+これで Step 8 後半で混入した script-private な `_load_concat_dataset` が library に昇格、複数 run 統合が公式 API になった。
+
+#### Dataset 拡大
+
+```text
+baseline_3way (元):  6 episodes (random/lowamp/hold × 2 ep), N = 3,594 transitions
+expanded (新):       106 episodes (元 6 + lowamp 50 + random 50), N = 51,534 transitions
+                     → 14× の transition 増、変動性も改善
+```
+
+新規 collection は `scripts/collect_episodes.py` で `--target-set runs/targets/train.npz --n-episodes 50` を `lowamp_random.yaml` / `default.yaml` の 2 config で。各 ~3 分の MyoSuite rollout。
+
+#### Forward model 再学習
+
+```text
+Model: ForwardMLP(state_dim=83, action_dim=34, hidden_dims=(256, 256), params=118355)
+Train: Adam(1e-3), batch=256, val_step=5
+Result: best_epoch=191, best_val_loss=0.0055, epochs_run=200 (early stop に届かず)
+```
+
+prediction MSE / tip prediction error の改善:
+
+```text
+Metric              baseline_3way    expanded         改善率
+─────────────────  ────────────     ──────────       ──────
+best_val_loss      0.0348           0.00550          -84%
+h=1 mse            0.0348           0.00550          -84%
+h=10 mse           0.138            0.0124           -91%
+h=50 mse           10.6             0.0524           -99.5%   <- 200× 改善
+h=1 tip_err        0.0549           0.00762          -86%
+h=10 tip_err       0.267            0.0356           -87%
+h=50 tip_err       3.36             0.138            -96%
+```
+
+**h=50 rollout MSE = 10 → 0.05** は最も劇的な改善。autoregressive rollout が安定化し、forward model が **estimator の prediction-only 経路で実用域に入った**。
+
+ただし epochs_run=200 で early stopping に届いていない ⇒ さらに長く学習すれば改善余地あり (Phase B/C を追加で検討する余地)。
+
+#### Fixed-gain estimator 再評価
+
+`scripts/evaluate_estimator.py --forward-model runs/models/2026-05-10T07-25-23Z` で 75 setting (5 K × 5 delay × 3 baseline) を再走。
+
+`tip_estimation_error_mean` (m, random run):
+
+```text
+Improved MLP (expanded):
+K\delay  0       1       2       4       6
+0.0      3.158   1.282   2.254   2.438   2.747      <- 49.3→3.2 で 15× 改善、ただしまだ不安定
+0.25     0.023   0.044   0.063   0.102   0.138
+0.5      0.010   0.024   0.035   0.058   0.079
+0.75     0.007   0.015   0.025   0.042   0.058      <- delay=0 で K=1 を超える
+1.0      0.008   0.013   0.020   0.035   0.049
+```
+
+#### Hypothesis H3 (Kalman update が prediction-only と observation-only の両方を上回る) の検証
+
+**Strong support (delay=0)**:
+
+3 baseline 平均 (`tip_estimation_error_mean`):
+
+```text
+baseline    K=0.0    K=0.5    K=0.75   K=1.0
+random      3.158    0.0099   0.0071   0.0078    <- K=0.75 best
+lowamp      4.232    0.0067   0.0065   0.0080    <- K=0.75 best
+hold        4.351    0.0072   0.0064   0.0082    <- K=0.75 best
+```
+
+**全 baseline で K=0.75 が K=1.0 を上回る**。さらに lowamp / hold では K=0.5 も K=1.0 を上回る → **prediction の貢献が観測ノイズの平均化として機能している**。これは fixed-gain Kalman の本来の動作であり、Hypothesis H3 の中核を支持する。
+
+**Partial support (delay > 0)**:
+
+delay=6 で:
+
+```text
+baseline    K=0.5    K=0.75   K=1.0
+random      0.079    0.058    0.049
+lowamp      0.048    0.0355   0.0313
+hold        0.071    0.0455   0.0356
+```
+
+長 delay では K=1.0 (純観測) が依然として最良。理由は delay 中の forward roll で誤差が累積し、prediction の重みを下げる必要があるため。これは数学的に自然 (delay が大きいほど observation の方が relevant)。
+
+K=0 の prediction-only は依然として 1-3 m level で発散気味、実用域ではない。MLP の training を 200 epoch 以上回す or multi-step rollout loss を追加すれば改善する余地あり (将来の Phase C/D)。
+
+#### 結論
+
+**Forward model の dataset 拡大だけで Phase 3.1 の研究的主張が大きく前進**:
+
+1. **Hypothesis H3 を delay=0 で強く検証** (K=0.75 が全 baseline で K=1 を上回る)
+2. **Phase 3.2 (learned/adaptive gain) の比較対象** が信頼できる状態に
+3. **Phase 2 (controller integration) の前提** (forward model が prediction-only で実用域) は **まだ未達** (K=0 で 1-3 m)、ただし将来の improvements で到達可能
+
+Phase C (per-field standardization) と Phase D (multi-step rollout loss) は **当面不要**:
+
+- 改善幅が dataset 拡大だけで十分大きかった
+- improvement 余地はあるが、優先度の高い別タスク (Phase 3.2 learned gain / Phase 2 PD) に進める方が research progress が大きい
+
+#### 次のステップ候補 (再優先)
+
+```text
+A. Phase 3.2 (learned/adaptive gain) — H3 検証を fixed gain から adaptive へ
+B. Phase 2 (PD endpoint controller + closed-loop) — H2 の reaching 側を検証
+C. Phase 0 さらなる collection 拡大 (target_set 全 200+50+50+30 = 330 episode)
+D. Phase 3.3 robustness sweep (SDN sigma / target jump / external perturbation)
+E. Phase C (per-field standardization) — Phase 1 model 改善
+```
+
+Phase C は不要、Phase A (collection 拡大は実施済み) と B (concat_datasets 実装) は完了。判断は次セッションに委ねる。
+
+設計判断ノート / 関連ノートは Obsidian 側を参照:
+
+- `Logs/2026-05-10-myoarm-fse-next-implementation-plan-after-fixed-kalman.md`

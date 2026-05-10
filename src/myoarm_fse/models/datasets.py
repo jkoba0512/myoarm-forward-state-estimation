@@ -416,6 +416,119 @@ def shuffle_transitions(
     )
 
 
+def concat_datasets(
+    datasets: Iterable[TransitionDataset],
+) -> TransitionDataset:
+    """Concatenate multiple ``TransitionDataset`` instances into one.
+
+    Episode-level provenance is preserved by saving the source dataset
+    index and original ``episode_id`` under ``source_dataset_index`` /
+    ``source_episode_id`` in the merged metadata, and rewriting
+    ``episode_id`` to a global sequential index that is unique across
+    the merged dataset. The merged ``episode_index`` is reindexed to
+    ``0..n_episodes-1`` so per-row provenance still maps cleanly into
+    ``episode_metadata``.
+
+    All input datasets must share ``state_dim`` and ``action_dim``;
+    mismatches raise ``ValueError``. An empty iterable raises
+    ``ValueError`` (we cannot infer dims from nothing).
+    """
+    parts = list(datasets)
+    if not parts:
+        raise ValueError(
+            "concat_datasets requires at least one dataset; "
+            "got an empty iterable"
+        )
+    for i, ds in enumerate(parts):
+        if not isinstance(ds, TransitionDataset):
+            raise ValueError(
+                f"datasets[{i}] must be TransitionDataset, "
+                f"got {type(ds).__name__}"
+            )
+
+    # Determine the target dims from the first non-empty dataset; empty
+    # datasets (state_dim/action_dim = 0 because no episodes contributed
+    # in build_transitions) are tolerated and skipped during dim check.
+    non_empty = [ds for ds in parts if ds.n_episodes > 0]
+    if not non_empty:
+        # All inputs are empty; fall back to the first input's nominal
+        # dims (likely 0/0) so the merged dataset is well-formed.
+        state_dim = parts[0].state_dim
+        action_dim = parts[0].action_dim
+    else:
+        state_dim = non_empty[0].state_dim
+        action_dim = non_empty[0].action_dim
+    for i, ds in enumerate(parts):
+        if ds.n_episodes == 0:
+            continue
+        if ds.state_dim != state_dim:
+            raise ValueError(
+                f"state_dim mismatch at datasets[{i}]: expected {state_dim}, "
+                f"got {ds.state_dim}"
+            )
+        if ds.action_dim != action_dim:
+            raise ValueError(
+                f"action_dim mismatch at datasets[{i}]: expected {action_dim}, "
+                f"got {ds.action_dim}"
+            )
+
+    # Single-input fast path: still produce a fresh dataset so the
+    # output's metadata gains the source_* fields uniformly.
+    new_x: list[np.ndarray] = []
+    new_u: list[np.ndarray] = []
+    new_xnext: list[np.ndarray] = []
+    new_dx: list[np.ndarray] = []
+    new_episode_index: list[np.ndarray] = []
+    new_metadata: list[dict[str, Any]] = []
+    offset = 0
+
+    for ds_idx, ds in enumerate(parts):
+        if ds.n_episodes == 0:
+            # Empty datasets contribute nothing but are not an error.
+            continue
+        new_x.append(ds.x)
+        new_u.append(ds.u)
+        new_xnext.append(ds.x_next)
+        new_dx.append(ds.dx)
+        new_episode_index.append(
+            ds.episode_index.astype(_DT_INT, copy=False) + offset
+        )
+        for local_idx, meta in enumerate(ds.episode_metadata):
+            entry = dict(meta)
+            entry["source_dataset_index"] = ds_idx
+            entry["source_episode_id"] = entry.get("episode_id")
+            entry["episode_id"] = offset + local_idx
+            new_metadata.append(entry)
+        offset += ds.n_episodes
+
+    if not new_metadata:
+        # Every input contributed zero episodes: produce an empty dataset
+        # with the inferred dims so caller can downstream-validate.
+        return TransitionDataset(
+            x=np.empty((0, state_dim), dtype=_DT_F32),
+            u=np.empty((0, action_dim), dtype=_DT_F32),
+            x_next=np.empty((0, state_dim), dtype=_DT_F32),
+            dx=np.empty((0, state_dim), dtype=_DT_F32),
+            episode_index=np.empty((0,), dtype=_DT_INT),
+            state_dim=state_dim,
+            action_dim=action_dim,
+            n_episodes=0,
+            episode_metadata=(),
+        )
+
+    return TransitionDataset(
+        x=np.concatenate(new_x, axis=0),
+        u=np.concatenate(new_u, axis=0),
+        x_next=np.concatenate(new_xnext, axis=0),
+        dx=np.concatenate(new_dx, axis=0),
+        episode_index=np.concatenate(new_episode_index, axis=0),
+        state_dim=state_dim,
+        action_dim=action_dim,
+        n_episodes=offset,
+        episode_metadata=tuple(new_metadata),
+    )
+
+
 def split_by_local_indices(
     dataset: TransitionDataset,
     *,

@@ -12,6 +12,7 @@ from myoarm_fse.data import EpisodeLog
 from myoarm_fse.models import (
     TransitionDataset,
     build_transitions,
+    concat_datasets,
     shuffle_transitions,
     split_by_episode,
 )
@@ -511,3 +512,93 @@ class TestSplitByEpisode:
         loaded = TransitionDataset.load(path)
         np.testing.assert_array_equal(train.x, loaded.x)
         assert loaded.episode_metadata == train.episode_metadata
+
+
+class TestConcatDatasets:
+    def test_basic_two_datasets(self) -> None:
+        a = build_transitions([_make_log(episode_id=i, n_steps=4) for i in range(2)])
+        b = build_transitions([_make_log(episode_id=i, n_steps=4) for i in range(3)])
+        merged = concat_datasets([a, b])
+        assert merged.n == a.n + b.n
+        assert merged.n_episodes == a.n_episodes + b.n_episodes
+        # episode_id is now globally sequential 0..n_episodes-1.
+        ids = [m["episode_id"] for m in merged.episode_metadata]
+        assert ids == list(range(merged.n_episodes))
+
+    def test_source_provenance_preserved(self) -> None:
+        a = build_transitions([_make_log(episode_id=10, n_steps=4)])
+        b = build_transitions([_make_log(episode_id=10, n_steps=4)])
+        merged = concat_datasets([a, b])
+        # Both sources used episode_id 10; merged should preserve that
+        # under source_episode_id while making episode_id unique.
+        sources = [m["source_episode_id"] for m in merged.episode_metadata]
+        assert sources == [10, 10]
+        ds_idx = [m["source_dataset_index"] for m in merged.episode_metadata]
+        assert ds_idx == [0, 1]
+        # Globally unique episode_id.
+        new_ids = [m["episode_id"] for m in merged.episode_metadata]
+        assert new_ids == [0, 1]
+
+    def test_episode_index_reindexed(self) -> None:
+        a = build_transitions([_make_log(episode_id=0, n_steps=4)])
+        b = build_transitions([
+            _make_log(episode_id=0, n_steps=4),
+            _make_log(episode_id=1, n_steps=4),
+        ])
+        merged = concat_datasets([a, b])
+        # Merged episode_index values must lie in [0, n_episodes) and
+        # cover the union of contributing episodes contiguously.
+        assert int(merged.episode_index.min()) == 0
+        assert int(merged.episode_index.max()) == merged.n_episodes - 1
+        assert set(merged.episode_index.tolist()) == set(range(merged.n_episodes))
+
+    def test_state_dim_mismatch_raises(self) -> None:
+        a = build_transitions([_make_log(qpos_dim=2, n_steps=4)])
+        b = build_transitions([_make_log(qpos_dim=3, n_steps=4)])
+        with pytest.raises(ValueError, match="state_dim mismatch"):
+            concat_datasets([a, b])
+
+    def test_action_dim_mismatch_raises(self) -> None:
+        # Keep act_dim (= state field width) the same so state_dim
+        # matches; differ only in action_dim (= excitation width).
+        a = build_transitions([_make_log(action_dim=4, act_dim=4, n_steps=4)])
+        b = build_transitions([_make_log(action_dim=5, act_dim=4, n_steps=4)])
+        with pytest.raises(ValueError, match="action_dim mismatch"):
+            concat_datasets([a, b])
+
+    def test_empty_iterable_raises(self) -> None:
+        with pytest.raises(ValueError, match="at least one"):
+            concat_datasets([])
+
+    def test_non_dataset_input_raises(self) -> None:
+        a = build_transitions([_make_log(n_steps=4)])
+        with pytest.raises(ValueError, match="TransitionDataset"):
+            concat_datasets([a, "not a dataset"])  # type: ignore[list-item]
+
+    def test_single_dataset_passthrough(self) -> None:
+        a = build_transitions([_make_log(episode_id=42, n_steps=4)])
+        merged = concat_datasets([a])
+        # Same content, but metadata gains source_* fields.
+        np.testing.assert_array_equal(merged.x, a.x)
+        np.testing.assert_array_equal(merged.episode_index, a.episode_index)
+        meta = merged.episode_metadata[0]
+        assert meta["source_dataset_index"] == 0
+        assert meta["source_episode_id"] == 42
+        assert meta["episode_id"] == 0  # reindexed even for single input
+
+    def test_empty_dataset_in_list_skipped(self) -> None:
+        a = build_transitions([_make_log(episode_id=0, n_steps=4)])
+        empty = build_transitions([_make_log(n_steps=1)])  # n_steps<2 → skipped
+        assert empty.n_episodes == 0
+        merged = concat_datasets([a, empty, a])
+        assert merged.n_episodes == 2  # only the two non-empty inputs contribute
+
+    def test_save_load_round_trip_after_concat(self, tmp_path: Path) -> None:
+        a = build_transitions([_make_log(episode_id=0, n_steps=4)])
+        b = build_transitions([_make_log(episode_id=0, n_steps=5)])
+        merged = concat_datasets([a, b])
+        path = tmp_path / "merged.npz"
+        merged.save(path)
+        loaded = TransitionDataset.load(path)
+        np.testing.assert_array_equal(merged.x, loaded.x)
+        assert loaded.episode_metadata == merged.episode_metadata
