@@ -1,0 +1,47 @@
+# Phase 3.2 stress: train condition-level gain predictor on the
+# 6-noise x 4-delay x 3-controller stress oracle (72 rows when one K
+# is picked per condition).
+#
+# Differs from learned_gain_default.yaml in:
+#   - delay_max: 36 (matches stress delay grid max)
+#   - noise_conditions includes vhigh / xhigh
+#
+# Run with:
+#   uv run python scripts/train_learned_gain.py \
+#       --config configs/estimators/learned_gain_stress.yaml \
+#       --oracle-table runs/estimators/{stress_eval_id}/best_by_condition.csv
+
+seed: 0
+
+architecture:
+  hidden_dims: [32, 32]
+
+train:
+  optimizer: adam
+  lr: 1.0e-3
+  weight_decay: 1.0e-3
+  batch_size: 72
+  epochs: 500
+
+cv_strategies: [loo, noise, delay, controller]
+
+input_encoding:
+  controller_names: [random, lowamp, hold]
+  sigma_field_order: [qpos, qvel, tip_pos, reach_err]
+  delay_max: 36
+
+run_to_controller:
+  "2026-05-09T23-51-12Z": random
+  "2026-05-10T02-37-37Z": lowamp
+  "2026-05-10T02-38-00Z": hold
+
+noise_conditions:
+  none:    { qpos: 0.0,   qvel: 0.0,   tip_pos: 0.0,    reach_err: 0.0 }
+  low:     { qpos: 0.005, qvel: 0.005, tip_pos: 0.0025, reach_err: 0.0025 }
+  medium:  { qpos: 0.01,  qvel: 0.01,  tip_pos: 0.005,  reach_err: 0.005 }
+  high:    { qpos: 0.02,  qvel: 0.02,  tip_pos: 0.01,   reach_err: 0.01 }
+  vhigh:   { qpos: 0.04,  qvel: 0.04,  tip_pos: 0.02,   reach_err: 0.02 }
+  xhigh:   { qpos: 0.08,  qvel: 0.08,  tip_pos: 0.04,   reach_err: 0.04 }
+
+output:
+  output_root: runs/learned_gain_models

@@ -1,0 +1,48 @@
+# Phase 3.2 stress eval: 7-strategy comparison on the stress grid
+# (3 controllers x 6 noise x 4 delays = 72 conditions).
+#
+# Run with:
+#   uv run python scripts/evaluate_learned_gain.py \
+#       --config configs/estimators/learned_gain_eval_stress.yaml \
+#       --learned-gain-model runs/learned_gain_models/{model_id}
+
+seed: 0
+forward_model: runs/models/2026-05-10T07-25-23Z
+
+runs:
+  - runs/episodes/2026-05-09T23-51-12Z   # random
+  - runs/episodes/2026-05-10T02-37-37Z   # lowamp
+  - runs/episodes/2026-05-10T02-38-00Z   # hold
+
+run_to_controller:
+  "2026-05-09T23-51-12Z": random
+  "2026-05-10T02-37-37Z": lowamp
+  "2026-05-10T02-38-00Z": hold
+
+obs_compose: noisy_then_delayed
+
+noise_conditions:
+  none:    { qpos: 0.0,   qvel: 0.0,   tip_pos: 0.0,    reach_err: 0.0 }
+  low:     { qpos: 0.005, qvel: 0.005, tip_pos: 0.0025, reach_err: 0.0025 }
+  medium:  { qpos: 0.01,  qvel: 0.01,  tip_pos: 0.005,  reach_err: 0.005 }
+  high:    { qpos: 0.02,  qvel: 0.02,  tip_pos: 0.01,   reach_err: 0.01 }
+  vhigh:   { qpos: 0.04,  qvel: 0.04,  tip_pos: 0.02,   reach_err: 0.02 }
+  xhigh:   { qpos: 0.08,  qvel: 0.08,  tip_pos: 0.04,   reach_err: 0.04 }
+
+delay_grid: [0, 6, 18, 36]
+
+strategies:
+  - K=0.0
+  - K=1.0
+  - global_best
+  - best_per_delay
+  - best_per_noise
+  - learned
+  - oracle
+
+# Will be filled in once the stress sweep completes; placeholder path
+# below is overridden via --oracle-table or by editing this field.
+oracle_table: runs/estimators/2026-05-10T11-01-23Z/best_by_condition.csv
+
+skip_cold_start: true
+output_root: runs/learned_gain_evals

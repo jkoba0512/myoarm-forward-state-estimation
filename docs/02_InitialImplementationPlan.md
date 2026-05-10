@@ -1953,3 +1953,127 @@ C. Phase 4 collection (target_set 全 330 episode) — variance 改善が必要�
 ```
 
 設計判断ノート: `Logs/2026-05-10-myoarm-fse-phase32-stage-a-learned-gain-design-decisions.md`
+
+---
+
+### Phase 3.2 stress eval 完了報告 (2026-05-10)
+
+#### 目的
+
+Phase 3.3-min と Stage A の評価で **K-curve がほぼ flat** になっていた問題を受け、より過酷な条件で blending gain (K<1) がふたたび意味を持つ regime を探す。replay-based stress (closed-loop は Phase 2 に持ち越し)。
+
+#### 設計
+
+- **delay grid**: `[0, 6, 18, 36]` (Phase 3.3-min は `[0, 2, 6]`)
+- **noise**: `none / low / medium / high / vhigh (×2 of high) / xhigh (×4 of high)` — `qpos`/`qvel` で sigma 0.04 / 0.08 まで拡張
+- **K grid**: `[0.0, 0.25, 0.5, 0.75, 1.0]` — 5 値に細分
+- **総セル**: 5 K × 4 delay × 6 noise × 3 controllers = 360 (Phase 3.3-min は 144)
+- **新規 config**:
+  - `configs/estimators/fixed_kalman_stress.yaml` — 360-cell sweep
+  - `configs/estimators/learned_gain_stress.yaml` — `delay_max: 36`, 6 noise conditions
+  - `configs/estimators/learned_gain_eval_stress.yaml` — 7-strategy eval
+
+#### Stress oracle (`runs/estimators/2026-05-10T11-01-23Z/`)
+
+72 conditions の best K 分布: `{1.0: 54, 0.75: 10, 0.5: 4, 0.25: 4}`。
+
+(delay, noise) を平均した best K:
+
+```
+delay\noise    none     low  medium    high   vhigh   xhigh
+  d= 0        1.000   0.833   0.750   0.583   0.417   0.250
+  d= 6        1.000   1.000   1.000   1.000   0.917   0.750
+  d=18        1.000   1.000   1.000   1.000   1.000   1.000
+  d=36        1.000   1.000   1.000   1.000   1.000   1.000
+```
+
+- **delay=0** で noise を上げると oracle K は 1.0 → 0.25 まで単調減少 (classical Kalman behavior)
+- **delay≥18** ではどの noise でも K=1.0 (forward-model rollout が長くなり observation の方がマシ)
+- 利得が出るのは **(delay=0, vhigh/xhigh)** に集中: oracle vs K=1.0 の tip_err 差が +0.013 ~ +0.033 m
+
+#### 二段の評価: OOD vs Retrained
+
+##### (i) OOD eval — 既存 Stage A model (`runs/learned_gain_models/2026-05-10T09-08-23Z/`, delay_max=6) を stress grid で評価
+
+`runs/learned_gain_evals/2026-05-10T11-50-47Z/`、504 cells。
+
+##### (ii) Retrained eval — stress oracle で再学習した model (`runs/learned_gain_models/2026-05-10T11-51-09Z/`, delay_max=36, 6 noise conditions, N=72) を stress grid で評価
+
+`runs/learned_gain_evals/2026-05-10T12-59-43Z/`、504 cells。CV LOO mean abs_err 0.075、median 0.026、final on N=72 mean 0.059 / max 0.299。
+
+##### 比較 (72 conds 集約)
+
+| strategy        | OOD mean | RETR mean | OOD max | RETR max |
+|-----------------|----------|-----------|---------|----------|
+| K=1.0           | 0.09049  | 0.09049   | 0.26776 | 0.26776  |
+| global_best     | 0.17890  | 0.17890   | 0.59094 | 0.59094  |
+| best_per_delay  | 0.09051  | 0.09051   | 0.26781 | 0.26781  |
+| best_per_noise  | 0.25347  | 0.25347   | 1.64443 | 1.64443  |
+| **learned**     | 0.08968  | **0.08899** | 0.26730 | **0.26832** |
+| oracle          | 0.08790  | 0.08790   | 0.26846 | 0.26846  |
+
+mean delta vs oracle:
+
+| strategy        | OOD       | RETR      |
+|-----------------|-----------|-----------|
+| K=1.0           | +0.00259  | +0.00259  |
+| best_per_delay  | +0.00261  | +0.00261  |
+| best_per_noise  | +0.16557  | +0.16557  |
+| **learned**     | **+0.00178** | **+0.00109** |
+
+max delta vs oracle:
+
+| strategy        | OOD       | RETR      |
+|-----------------|-----------|-----------|
+| K=1.0           | +0.03725  | +0.03725  |
+| best_per_delay  | +0.03730  | +0.03730  |
+| best_per_noise  | +1.47256  | +1.47256  |
+| **learned**     | +0.02450  | **+0.00586** |
+
+##### Focus: delay=0, high-noise (blending が最も効く領域)
+
+|  condition       | oracle  | K=1.0   | OOD learned | RETR learned |
+|------------------|---------|---------|-------------|--------------|
+| high,  d=0       | 0.01134 | 0.01594 | 0.01327     | 0.01188      |
+| vhigh, d=0       | 0.01942 | 0.03157 | 0.02603     | 0.02109      |
+| **xhigh, d=0**   | **0.02978** | **0.06354** | **0.05222** | **0.03428** |
+
+xhigh, d=0 で:
+- K=1.0 → oracle 比 ×2.1 worse
+- OOD learned → ×1.75 worse
+- **RETR learned → ×1.15 worse** (oracle に肉薄)
+
+##### K_used (delay=0, xhigh, controller 別)
+
+|  controller | oracle | OOD   | RETR  |
+|-------------|--------|-------|-------|
+| random      | 0.250  | 0.843 | 0.479 |
+| lowamp      | 0.250  | 0.765 | 0.372 |
+| hold        | 0.250  | 0.787 | 0.416 |
+
+OOD は K≈0.78-0.84 のせまい帯域 (delay_max=6 training distribution に縛られる) → RETR は 0.37-0.48 まで pull down。完全には oracle 0.25 に届かないが、tip_err の改善幅は大きい。
+
+#### 要点
+
+1. **stress eval は当初目的を達成**: (low delay + high noise) の領域で blending gain が再び意味を持つことを確認。
+2. **delay≥18 では blending 不要**: forward-model rollout error が compound して、どんなに noise が大きくても観測の方がマシ。これは training data 量を増やすか long-rollout 訓練を加えれば変わりうる構造的問題。
+3. **retrained Stage A は max delta を 4× 改善** (0.0245 → 0.0059)、mean delta は 1.6× 改善 (+0.0018 → +0.0011)。supervised condition-level approach は blending が効く regime を概ね捕捉できる。
+4. **完全には届かない**: 1.4k param MLP で N=72 の交互作用 (noise×delay) を学習するには表現力不足。Stage B で innovation 等の state feature を加えると、K の動的調整 (per-step) が可能になり、condition 平均 K の限界を超える余地。
+5. **best_per_noise / best_per_delay は使えない**: 一方軸だけで K を選ぶと他軸で崩壊する (best_per_noise の max delta = 1.47 m)。learned のみが全条件で安定。
+
+#### 次の方向
+
+```text
+A. Phase 3.2 Stage B (state-dependent gain) — innovation norm 等を入力に
+   - 動機: stress eval で delay=0, xhigh で oracle K=0.25 を当てる必要があるが、
+     condition-level supervised では学習が不十分。
+   - 期待: per-step で K を動かせると condition-stationary な制約から自由に。
+B. Phase 3.2 long-rollout training data — forward model を多段で訓練
+   - 動機: delay≥18 で K=1 が最適なのは forward model error が compound するから。
+     long-horizon supervision を入れると delay 大領域でも blending が effective に。
+C. Phase 2 (PD endpoint + closed-loop) — Stage B と直交、いつでも着手可
+```
+
+合理的順序は **A → B → C** だが、B は collection コストが大きいので、まず A で表現力を上げる方針。
+
+設計判断ノート / 報告書: `Logs/2026-05-10-myoarm-fse-phase32-stress-eval-completion-report.md`
