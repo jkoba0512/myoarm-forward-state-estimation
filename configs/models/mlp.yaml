@@ -1,0 +1,35 @@
+# Default residual MLP forward-model training config.
+#
+# Phase 0 baseline: 2 hidden x 256, ReLU + LayerNorm, residual output (Δx).
+# Adam(lr=1e-3), batch=256, 200 epochs with early stopping (patience 20).
+# Validation holds out every val_step-th source episode.
+#
+# Datasets are loaded from a list of paths and concatenated. To train on
+# the three Phase 0 baselines together, build runs/datasets/baseline_3way.npz
+# beforehand from the random / lowamp / hold runs (see Step 8 minimum
+# completion notes).
+
+seed: 0
+
+architecture:
+  hidden_dims: [256, 256]
+
+train:
+  optimizer: adam
+  lr: 1.0e-3
+  weight_decay: 0.0
+  batch_size: 256
+  epochs: 200
+  early_stopping_patience: 20
+  early_stopping_min_delta: 0.0
+  val_step: 5
+
+data:
+  dataset_paths:
+    - runs/datasets/baseline_3way.npz
+
+eval:
+  rollout_horizons: [1, 10, 50]
+
+output:
+  output_root: runs/models

@@ -416,6 +416,31 @@ def shuffle_transitions(
     )
 
 
+def split_by_local_indices(
+    dataset: TransitionDataset,
+    *,
+    val_indices: Iterable[int],
+) -> tuple[TransitionDataset, TransitionDataset]:
+    """Partition ``dataset`` into ``(train, val)`` keyed by *local position*.
+
+    ``val_indices`` are positions into ``dataset.episode_metadata`` (i.e.
+    values in ``[0, dataset.n_episodes)``), NOT original episode_id
+    values. Use this when episode_id is not guaranteed to be unique
+    across the dataset (e.g. after concatenating multiple source runs).
+    """
+    indices = sorted({int(i) for i in val_indices})
+    if any(i < 0 or i >= dataset.n_episodes for i in indices):
+        raise ValueError(
+            f"val_indices must lie in [0, {dataset.n_episodes}); got {indices}"
+        )
+    val_local = indices
+    train_local = [i for i in range(dataset.n_episodes) if i not in set(val_local)]
+    return (
+        _select_episodes(dataset, train_local),
+        _select_episodes(dataset, val_local),
+    )
+
+
 def split_by_episode(
     dataset: TransitionDataset,
     *,

@@ -1239,3 +1239,158 @@ Step 8: forward model baseline            ⚠ 部分完了 (TransitionDataset; M
 設計判断の経緯は Obsidian 側のログを参照:
 
 - `Logs/2026-05-10-myoarm-fse-step8-transition-dataset-design-decisions.md`
+
+### 2026-05-10: Step 8 後半 (residual MLP + training loop) 完了
+
+Step 8 minimum (`TransitionDataset`) の続きとして、forward model 本体 (residual MLP) + training loop + 2 つの CLI を実装。3 baseline (random / lowamp / hold) で end-to-end の training と evaluation が動くことを実測確認。
+
+#### 追加ファイル
+
+```text
+src/myoarm_fse/models/mlp.py              # ForwardMLP (PyTorch nn.Module)
+src/myoarm_fse/models/train.py            # TrainConfig, setup_seeds, train_forward_model,
+                                          #   make_train_val_split, save_model, load_model,
+                                          #   rollout_predictions, make_model_id
+configs/models/mlp.yaml                    # default training config
+scripts/train_forward_model.py             # CLI thin wrapper
+scripts/evaluate_run.py                    # CLI: model + run → metrics 一括出力
+tests/test_model_mlp.py                    # 18 tests
+tests/test_model_train.py                  # 23 tests
+runs/datasets/baseline_3way.npz           # 3 baseline 統合 dataset (gitignored)
+runs/models/{model_id}/                   # 学習済み model + eval_*.json (gitignored)
+```
+
+#### 更新ファイル
+
+```text
+src/myoarm_fse/models/datasets.py         # split_by_local_indices 公開 helper を追加
+src/myoarm_fse/models/__init__.py         # 全 re-export 拡張
+docs/02_InitialImplementationPlan.md      # Step 8 後半完了メモ
+```
+
+#### 確定した API
+
+```text
+ForwardMLP(state_dim, action_dim, hidden_dims=(256, 256))   # PyTorch nn.Module
+  .forward(x, u) -> Δx                                      # residual output
+  .predict_next(x, u) -> x + Δx                            # closed-loop step
+
+TrainConfig(optimizer="adam", lr=1e-3, weight_decay=0,
+            batch_size=256, epochs=200,
+            early_stopping_patience=20, early_stopping_min_delta=0,
+            grad_clip=None, seed=0, val_step=5)
+
+setup_seeds(master_seed) -> dict[str, int]
+  - SeedSequence.spawn で派生、numpy/torch/random を seed
+  - returns {"model_init", "dataset_shuffle", "dataloader"}
+
+make_train_val_split(dataset, *, val_step=5) -> (train_ds, val_ds)
+  - local index ベース (val_step ごとに val、残りを train)
+  - episode_id 衝突に robust
+
+train_forward_model(model, train_ds, val_ds, config, *, seeds=None)
+  -> (best_model, metrics)
+  - Adam / AdamW、MSE on Δx、early stopping、best checkpoint
+
+rollout_predictions(model, dataset, *, horizons=(1, 10, 50))
+  -> dict[h: {"rollout_mse": float, "tip_prediction_error": float}]
+  - closed-loop autoregressive、recorded u_t、sliding window
+  - episode 境界をまたがない
+
+save_model(model, config, metrics, *, path, info=None)
+load_model(path) -> (model, config, metrics)
+make_model_id(now=None) -> str   # UTC timestamp、Step 5 run_id 同型
+
+split_by_local_indices(dataset, *, val_indices)
+  -> (train, val)   # episode_id 衝突に対応する公開 helper (datasets.py に追加)
+```
+
+#### 確定した実装方針
+
+- **MLP architecture**: `Linear(state+action, 256) → LayerNorm → ReLU → Linear → LayerNorm → ReLU → Linear(state)`、residual output (Δx)。117→256→256→83 で param ~118k (myoArm reach 想定)。
+- **Loss**: MSE on Δx、uniform weight、normalize なし (per-field scale の差は受け入れる)。
+- **Optimizer**: Adam(lr=1e-3, weight_decay=0)、batch=256、epochs=200、early stopping patience=20、no scheduler。
+- **Validation**: `make_train_val_split` で local index ベース、val_step=5 で 6 episode → train 4 / val 2 (~33%)。毎 epoch 評価、best val loss の checkpoint を保持。
+- **Rollout evaluation**: closed-loop autoregressive、recorded `u_t` 使用、horizons `[1, 10, 50]`、sliding window、episode 境界をまたがない。
+- **tip_pos**: 特別扱いなし。flat state の一部、評価時に `StateSpec.layout()["tip_pos"]` で slice 抽出して `tip_prediction_error` (Step 7) を呼ぶ。
+- **Save format**: `state_dict + config.json + metrics.json + info.json` を `runs/models/{model_id}/` に保存。`load_model` は `weights_only=True` で安全に load。
+- **Reproducibility**: master_seed → SeedSequence.spawn → numpy / torch / random を seed。CPU 学習で `torch.use_deterministic_algorithms` は入れない (overhead 回避)。
+- **CLI**: 2 つの独立 script (`train_forward_model.py` / `evaluate_run.py`)、YAML config 主、限定 `--override`。
+
+#### 実装中に発見した bug fix (1 件)
+
+**Episode_id 衝突問題**: `_load_concat_dataset` で複数 run を concat したとき、各 run が `episode_id` 0, 1 を持つので衝突。`make_train_val_split` が当初 `split_by_episode` 経由で episode_id ベース分割していたため、全 episode が val 行きになる症状が出た。
+
+**修正**: `split_by_local_indices(dataset, *, val_indices)` を `datasets.py` に新設し、`make_train_val_split` をこちらに切り替え。`split_by_episode` の API は維持 (UNIQUE な episode_id を持つ単一 run dataset 用)。
+
+加えて、`scripts/train_forward_model.py` の `_load_concat_dataset` で concat 時に `episode_id` を global sequential index に振り直し、original ID は `source_episode_id` に保存する形にした。これで concat 後の dataset でも `split_by_episode` が動く。
+
+#### 検証
+
+```bash
+uv run pytest                # default: 468 passed, 40 deselected in 1.50 s
+uv run pytest -m myosuite    # 40 passed in 5.36 s
+```
+
+合計 508 tests (+41 = 18 mlp + 23 train)。default 時間が 0.29 s → 1.50 s に上昇 (PyTorch import + 41 新テスト)、許容範囲。
+
+#### Baseline 3way での実走結果
+
+```bash
+# 1. dataset 構築 (3 baseline 統合)
+uv run python -c "..."  # build_transitions on 6 episodes from 3 runs
+# → runs/datasets/baseline_3way.npz: N=3594, state_dim=83, action_dim=34, n_episodes=6
+
+# 2. training
+uv run python scripts/train_forward_model.py --config configs/models/mlp.yaml
+# → Split: train N=2396 (4 ep) / val N=1198 (2 ep)
+# → ForwardMLP(state_dim=83, action_dim=34, hidden_dims=(256, 256), params=118355)
+# → best_epoch=36, best_val_loss=0.034781, epochs_run=57 (early stop)
+# → Saved: runs/models/2026-05-10T04-15-54Z/
+
+# 3. evaluation against each baseline
+uv run python scripts/evaluate_run.py --model runs/models/{model_id} --run runs/episodes/{run_id}
+```
+
+3 baseline での prediction metrics:
+
+```text
+                    h=1 mse    h=10 mse   h=50 mse   h=1 tip_err  h=10 tip_err  h=50 tip_err
+random (σ=0.2)      0.0432     0.2024     10.383     0.0783       0.2858        2.985
+lowamp (σ=0.05)     0.0036     0.0304      6.189     0.0220       0.1066        1.924
+hold   (v=0.0)      0.0006     0.0199      7.938     0.0196       0.1547        2.932
+```
+
+物理的解釈:
+
+- **hold が h=1 で最小 MSE** (0.0006): silent muscles で dynamics は重力 dominant、単純で予測しやすい
+- **lowamp が次** (0.0036): tonic muscles で smooth な dynamics
+- **random が最大** (0.0432): wild excitation で snapshot ごとに方向が変わる、predict 困難
+- **h=50 で全 baseline 発散**: 50 step (1 s) 先まで autoregressive に rollout すると誤差累積、`mse > 5` のオーダーで unreliable。これは最初の MLP baseline では expected
+- **tip_err も同パターン**: hold < lowamp < random (short horizons)、long horizon では全部不安定
+
+これで forward model baseline の **動作確認 + 比較対象 baseline** が揃った。
+
+#### Phase 0 全体の到達度
+
+```text
+Step 1: target set generator              完了
+Step 2: state schema                      完了
+Step 3: action adapter + motor noise      完了
+Step 4: delay / noisy obs wrappers        完了
+Step 5: episode logger (+ random ctrl)    完了
+Step 6: baseline controllers              ⚠ 部分完了 (Hold + factory; PD は defer)
+Step 7: reaching metrics                  完了
+Step 8: forward model baseline            完了 (TransitionDataset + MLP + training + 2 CLIs)
++ Option B: env factory + extractor       完了
+```
+
+**Phase 0 ほぼ完了**。残り:
+
+- Step 6 残: PDEndpointController (Step 7 metrics + Step 8 forward model で評価できるようになった)
+- 改善: rollout MSE の安定化 (h=50 で発散する問題)、forward model architecture の探索 (LSTM / CfC / LTC)、normalization、ablation (state subset / action variant)
+- Project 1 本筋: forward prediction と Kalman-like state estimator の評価
+
+設計判断の経緯は Obsidian 側のログを参照:
+
+- `Logs/2026-05-10-myoarm-fse-step8-mlp-training-design-decisions.md`
