@@ -1394,3 +1394,134 @@ Step 8: forward model baseline            完了 (TransitionDataset + MLP + trai
 設計判断の経緯は Obsidian 側のログを参照:
 
 - `Logs/2026-05-10-myoarm-fse-step8-mlp-training-design-decisions.md`
+
+### 2026-05-10: Phase 3.1 (fixed-gain Kalman-like estimator) 完了
+
+Project 1 本筋の最初の estimator 実装。Phase 2 (controller 比較) を defer し、**オフライン評価フレーム** で Phase 3.1 を進めた:
+
+```text
+既存 baseline log の true_state
+  ↓ NoisyObservationWrapper + DelayedObservationWrapper (Step 4) で y_obs を offline 合成
+  ↓ FixedGainKalmanEstimator が forward model (Step 8) と組み合わせて時系列処理
+  x_est = x_pred + K * (y_obs - h(x_pred_{t-d}))  (h = identity、buffered + roll forward)
+  ↓ aggregate_estimation_metrics で per-field MSE / tip estimation error 集計
+```
+
+closed-loop 統合 (estimator + controller) は Phase 2 の PD endpoint controller 実装と一緒に後で。
+
+#### 追加ファイル
+
+```text
+src/myoarm_fse/estimators/__init__.py
+src/myoarm_fse/estimators/base.py            # Estimator Protocol (将来用)
+src/myoarm_fse/estimators/fixed_kalman.py    # FixedGainKalmanEstimator + helpers
+configs/estimators/fixed_kalman_default.yaml
+scripts/evaluate_estimator.py                # grid sweep CLI
+tests/test_fixed_kalman.py                   # 31 tests
+```
+
+#### 確定した API
+
+```text
+class Estimator(Protocol):
+  state_dim
+  reset(initial_state)
+  step(y_obs, u) -> x_est
+
+class FixedGainKalmanEstimator(forward_model, gain, state_spec, *, delay_steps=0):
+  - gain: float (scalar) or dict[str, float] (per-field、未指定 field は 0)
+  - 内部で (state_dim,) vector に展開、element-wise update
+  - delay_steps > 0 で buffered correction + forward roll
+  - Cold start (t < delay_steps): prediction-only で進む
+  .state_dim / .action_dim / .delay_steps / .gain_vec
+  .reset(initial_state) / .step(y_obs, u)
+
+class EstimationResult:
+  x_est, x_true, error_per_step, error_per_step_norm
+  n_steps, delay_steps, layout
+
+synth_observations(log, *, state_spec, sigma, delay_steps, seed, obs_compose) -> y_obs
+evaluate_estimator_on_log(estimator, log, *, ...) -> EstimationResult
+aggregate_estimation_metrics(results, *, skip_cold_start=True) -> dict[str, float]
+```
+
+#### 検証
+
+```bash
+uv run pytest                # default: 499 passed, 40 deselected in 1.55 s
+uv run pytest -m myosuite    # 40 passed in 5.25 s
+```
+
+合計 539 tests (+31 = test_fixed_kalman.py)。
+
+#### Grid sweep 実走結果
+
+```bash
+uv run python scripts/evaluate_estimator.py --config configs/estimators/fixed_kalman_default.yaml
+```
+
+config:
+
+- forward_model: `runs/models/2026-05-10T04-15-54Z` (Step 8 後半で訓練)
+- runs: random / lowamp / hold (3 baseline)
+- obs_noise_sigma: qpos=0.01, qvel=0.05, tip_pos=0.005, others 0
+- gain_grid: [0, 0.25, 0.5, 0.75, 1.0]
+- delay_grid: [0, 1, 2, 4, 6] (= 0/20/40/80/120 ms)
+
+`tip_estimation_error_mean` (random run、単位 m):
+
+```text
+K\delay  0       1       2       4       6
+0.0      49.34   25.44   49.24   50.81   48.00      <- prediction-only catastrophic
+0.25     0.118   0.143   0.831   2.573   4.653
+0.5      0.049   0.089   0.153   0.495   1.658
+0.75     0.022   0.078   0.127   0.223   0.356
+1.0      0.008   0.079   0.125   0.212   0.300      <- observation-only at delay=0
+```
+
+#### 物理的解釈
+
+- **K=0 (prediction-only) は破滅的**: tip estimation error 25〜56 m。workspace bbox (30 cm) の 100 倍以上。forward MLP の 600 step autoregressive rollout が完全に発散 — Step 8 後半で観察した h=50 mse=10 のさらに先まで run away。
+- **K=1 (observation-only) が delay=0 で最良 (0.008 m)**: y_obs は noisy true_state、`tip_pos` の sigma=0.005 とほぼ一致。当然の結果。
+- **K=0.5 で delay=0 sweet spot (0.049 m)**: K=1 (0.008) よりわずかに悪いが、prediction と observation の平均化で noise variance reduction が効くケース。
+- **delay 増えるほど高 K が必要**: K=0.5 で delay=6 のとき 1.66 m、K=1 で 0.30 m。forward model rollout の累積誤差を観測補正で抑える必要が大きくなる。
+- **Hypothesis H3 部分検証**: 「Kalman-like update が prediction-only と observation-only の両方を上回る」 — delay=0 で K=0.75 が K=1 (0.008) より悪い (0.022) のは、prediction が unreliable なため平均化のメリットが noise reduction の恩恵を打ち消すためと推察。
+
+#### 設計判断ノートからの差分
+
+ノート (`...-phase3-fixed-gain-kalman-design-decisions`) の Q1〜Q10 を **そのまま**実装。逸脱 1 件:
+
+- **delay handling の cold start 動作**: ノートでは「cold start 期間は estimator が動かない」と書いたが、実装では「prediction-only で propagate (correction なし)」として動かす形にした。`u_buffer` の長さが `delay_steps` 未満の間は correction を skip。これによりテストが書きやすく、cold start 後に自然に correction が始まる。
+
+#### 既知の制約
+
+1. **`_state_spec_from_model_config` が myoArm 固定**: state_dim=83 を見て StateSpec(qpos=20, qvel=20, act=34) を返す hard-coded fallback。multi-env / multi-schema 拡張時に dataset / model に layout を持たせる必要あり。
+2. **K=0 で forward MLP が発散**: 単独 forward model の長期 rollout 不安定性を物語る。Phase 1 に戻って multi-step training loss / per-field standardization / 別 architecture を試す動機がある。
+3. **Phase 2 (controller 比較) と closed-loop integration は未実装**: PD endpoint controller を defer 中。estimator が controller を駆動する形は別フェーズ。
+4. **observation noise の sigma が固定**: grid sweep で sigma を変える機能はない (config 1 個で 1 noise 設定)。複数 sigma 比較は config を複数作って sweep する運用。
+
+#### Phase 0 + Project 1 全体の到達度
+
+```text
+Phase 0:
+  Step 1: target set generator              完了
+  Step 2: state schema                      完了
+  Step 3: action adapter + motor noise      完了
+  Step 4: delay / noisy obs wrappers        完了
+  Step 5: episode logger (+ random ctrl)    完了
+  Step 6: baseline controllers              ⚠ 部分完了 (Hold + factory; PD は defer)
+  Step 7: reaching metrics                  完了
+  Step 8: forward model baseline            完了
+
+Project 1:
+  Phase 1: forward model baseline            完了 (Step 8 と同じ実装)
+  Phase 2: delayed feedback control          未着手 (PD 必須、defer 中)
+  Phase 3.1: fixed-gain Kalman estimator    完了 (このステップ)
+  Phase 3.2: learned/adaptive gain           未着手
+  Phase 3.3: SDN/noise/delay 下の評価         部分着手 (Phase 3.1 grid sweep 結果)
+  Phase 4: 論文化セット                       未着手
+```
+
+設計判断の経緯は Obsidian 側のログを参照:
+
+- `Logs/2026-05-10-myoarm-fse-phase3-fixed-gain-kalman-design-decisions.md`

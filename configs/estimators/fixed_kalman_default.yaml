@@ -1,0 +1,35 @@
+# Fixed-gain Kalman-like estimator grid sweep (Phase 3.1).
+#
+# Sweeps the cross product of gain × delay and evaluates each setting
+# against every listed run. Within a run, every episode is processed
+# offline: the recorded true_state is replayed through the Step 4
+# wrappers (NoisyObservationWrapper / DelayedObservationWrapper) to
+# synthesize y_obs, the estimator runs autoregressively, and per-field
+# error statistics are collected.
+#
+# delay_grid is in steps (dt = 0.02 s), so delay 0/1/2/4/6 corresponds
+# to 0/20/40/80/120 ms (Phase 2.2 of the research plan).
+
+seed: 0
+forward_model: runs/models/2026-05-10T04-15-54Z
+
+runs:
+  - runs/episodes/2026-05-09T23-51-12Z   # random
+  - runs/episodes/2026-05-10T02-37-37Z   # lowamp
+  - runs/episodes/2026-05-10T02-38-00Z   # hold
+
+obs_noise_sigma:
+  qpos: 0.01
+  qvel: 0.05
+  act: 0.0
+  tip_pos: 0.005
+  target_pos: 0.0
+  reach_err: 0.0
+
+obs_compose: noisy_then_delayed
+
+gain_grid: [0.0, 0.25, 0.5, 0.75, 1.0]
+delay_grid: [0, 1, 2, 4, 6]
+
+skip_cold_start: true
+output_root: runs/estimators
