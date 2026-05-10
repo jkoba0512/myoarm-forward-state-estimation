@@ -1,0 +1,54 @@
+# Phase 3.2 Stage A: condition-level supervised K predictor.
+#
+# Trains a small MLP that maps (controller, noise_sigma, delay_steps) →
+# scalar K ∈ [0, 1], using best_by_condition.csv from the Phase 3.3-min
+# robustness sweep as oracle labels (36 rows).
+#
+# State-dependent features (innovation norm, prediction uncertainty
+# proxy, etc.) are deferred to Stage B; here K is computed once at
+# estimator construction so the per-step behavior reduces to
+# FixedGainKalmanEstimator with a learned scalar.
+#
+# Run with:
+#   uv run python scripts/train_learned_gain.py \
+#       --config configs/estimators/learned_gain_default.yaml \
+#       --oracle-table runs/estimators/2026-05-10T08-18-58Z/best_by_condition.csv
+
+seed: 0
+
+architecture:
+  hidden_dims: [32, 32]
+
+train:
+  optimizer: adam
+  lr: 1.0e-3
+  weight_decay: 1.0e-3
+  batch_size: 36
+  epochs: 500
+
+cv_strategies: [loo, noise, delay, controller]
+
+input_encoding:
+  controller_names: [random, lowamp, hold]
+  sigma_field_order: [qpos, qvel, tip_pos, reach_err]
+  delay_max: 6
+
+# best_by_condition.csv の `controller` 列は run_id (timestamp) のため、
+# encoder が期待する canonical name (random / lowamp / hold) に変換する。
+# 元のソース: configs/estimators/robustness_sweep.yaml の runs。
+run_to_controller:
+  "2026-05-09T23-51-12Z": random
+  "2026-05-10T02-37-37Z": lowamp
+  "2026-05-10T02-38-00Z": hold
+
+# Sigma vectors keyed by noise condition name. Required so the trainer
+# can attach the actual sigma values to each oracle row (best_by_condition.csv
+# stores the noise_condition name but not the sigma vector itself).
+noise_conditions:
+  none:    { qpos: 0.0,   qvel: 0.0,   tip_pos: 0.0,    reach_err: 0.0 }
+  low:     { qpos: 0.005, qvel: 0.005, tip_pos: 0.0025, reach_err: 0.0025 }
+  medium:  { qpos: 0.01,  qvel: 0.01,  tip_pos: 0.005,  reach_err: 0.005 }
+  high:    { qpos: 0.02,  qvel: 0.02,  tip_pos: 0.01,   reach_err: 0.01 }
+
+output:
+  output_root: runs/learned_gain_models

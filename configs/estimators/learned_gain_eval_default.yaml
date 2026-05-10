@@ -1,0 +1,62 @@
+# Phase 3.2 Stage A evaluation: 7-strategy comparison against the
+# Phase 3.3-min grid using a trained learned-gain model.
+#
+# Strategies (all evaluated on the same controller × noise × delay grid
+# so the rows align row-by-row in comparison.csv):
+#   1. K=0.0          prediction-only baseline
+#   2. K=1.0          observation-only baseline
+#   3. global_best    best fixed K averaged over all conditions
+#   4. best_per_delay best fixed K within each delay (3 K values)
+#   5. best_per_noise best fixed K within each noise condition (4 K values)
+#   6. learned        Stage A MLP output for the condition
+#   7. oracle         best_by_condition lookup (36-row table)
+#
+# Run with:
+#   uv run python scripts/evaluate_learned_gain.py \
+#       --config configs/estimators/learned_gain_eval_default.yaml \
+#       --learned-gain-model runs/learned_gain_models/{model_id}
+
+seed: 0
+forward_model: runs/models/2026-05-10T07-25-23Z
+
+runs:
+  - runs/episodes/2026-05-09T23-51-12Z   # random
+  - runs/episodes/2026-05-10T02-37-37Z   # lowamp
+  - runs/episodes/2026-05-10T02-38-00Z   # hold
+
+# Canonical controller name per run_id. The eval script translates the
+# run directory name to one of (random / lowamp / hold) for the learned
+# estimator's encoder and for oracle CSV lookups (the CSV stores run_id
+# as `controller`, so the same map canonicalizes that side too).
+run_to_controller:
+  "2026-05-09T23-51-12Z": random
+  "2026-05-10T02-37-37Z": lowamp
+  "2026-05-10T02-38-00Z": hold
+
+obs_compose: noisy_then_delayed
+
+noise_conditions:
+  none:    { qpos: 0.0,   qvel: 0.0,   tip_pos: 0.0,    reach_err: 0.0 }
+  low:     { qpos: 0.005, qvel: 0.005, tip_pos: 0.0025, reach_err: 0.0025 }
+  medium:  { qpos: 0.01,  qvel: 0.01,  tip_pos: 0.005,  reach_err: 0.005 }
+  high:    { qpos: 0.02,  qvel: 0.02,  tip_pos: 0.01,   reach_err: 0.01 }
+
+delay_grid: [0, 2, 6]
+
+strategies:
+  - K=0.0
+  - K=1.0
+  - global_best
+  - best_per_delay
+  - best_per_noise
+  - learned
+  - oracle
+
+# Path to the best_by_condition.csv used for the oracle / per-axis-best
+# strategies and (during the sweep) to look up the row corresponding to
+# each evaluated condition. Must be the same file the learned model was
+# trained on for the comparison to be meaningful.
+oracle_table: runs/estimators/2026-05-10T08-18-58Z/best_by_condition.csv
+
+skip_cold_start: true
+output_root: runs/learned_gain_evals

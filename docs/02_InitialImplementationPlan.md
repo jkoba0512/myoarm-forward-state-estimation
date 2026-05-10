@@ -1849,3 +1849,107 @@ C. 大規模 collection (target_set 全 330 episode) は Phase 3.2 評価で var
 設計判断ノートは Obsidian 側を参照:
 
 - `Logs/2026-05-10-myoarm-fse-next-implementation-plan-after-forward-model-cycle.md`
+
+---
+
+### Phase 3.2 Stage A 完了報告 (2026-05-10)
+
+#### 目的
+
+Phase 3.3-min の `best_by_condition.csv` (36 行) を condition-level oracle label として、
+`(controller, noise_sigma, delay)` から scalar K を出す小さい supervised MLP を学習する。
+state-dependent feature (innovation norm 等) は Stage B に送る。
+
+#### 実装
+
+新規ファイル:
+
+```
+src/myoarm_fse/estimators/learned.py           # GainPredictor + LearnedGainKalmanEstimator
+configs/estimators/learned_gain_default.yaml   # train config
+configs/estimators/learned_gain_eval_default.yaml  # 7-strategy eval config
+scripts/train_learned_gain.py                  # CLI
+scripts/evaluate_learned_gain.py               # CLI
+tests/test_learned_kalman.py                   # 23 tests
+tests/test_train_learned_gain_cli.py           # 19 tests
+```
+
+主要設計:
+
+1. **入力 8 次元**: controller one-hot (3) + noise sigma vector (4 = qpos/qvel/tip_pos/reach_err) + delay/delay_max (1)
+2. **アーキ**: 8 → 32 → 32 → 1 with ReLU + sigmoid (K ∈ [0, 1])。パラメタ ~1.4k。
+3. **学習**: MSE on K oracle、Adam lr=1e-3 wd=1e-3、500 epoch、batch 36 (full)、seed 0
+4. **CV**: LOO + stratified by noise / delay / controller (out-of-distribution generalization 確認)
+5. **K 計算は construction 時に 1 回**: composition で `FixedGainKalmanEstimator` を内部に保持。Stage A は時間不変 → per-step 推論不要。
+6. **`run_to_controller` map**: `best_by_condition.csv` の `controller` 列は run_id (timestamp) なので、canonical name (random / lowamp / hold) に train / eval 双方で変換。
+
+#### 学習結果 (`runs/learned_gain_models/2026-05-10T09-08-23Z/`)
+
+CV abs_error of K_pred vs oracle K:
+
+```
+loo         n_folds=36  mean=0.1008  median=0.0654  max=0.4246
+noise       n_folds= 4  mean=0.1029  median=0.0640  max=0.4198
+delay       n_folds= 3  mean=0.1150  median=0.0949  max=0.4672
+controller  n_folds= 3  mean=0.1067  median=0.1007  max=0.2771
+final on N=36           mean=0.0883  max=0.3507
+```
+
+K_oracle の分布は {0.5: 3, 0.75: 6, 1.0: 27}。学習 model は [0.77, 0.93] のせまい帯域で予測する傾向 (bias toward K≈1)。
+特に `(*, high, 0)` の K=0.5 ケースは難しく、predicted K ≈ 0.77-0.85。
+
+#### 7-strategy 評価結果 (`runs/learned_gain_evals/2026-05-10T09-08-29Z/`)
+
+評価グリッド: 3 controllers × 4 noise × 3 delays × 7 strategies = 252 cells。
+
+tip_estimation_error_mean (m), 36 conditions に対する集約:
+
+| strategy        |   mean   |  median  |   max    |
+|-----------------|----------|----------|----------|
+| K=0.0           | 3.10728  | 3.15953  | 4.35070  |
+| K=1.0           | 0.01994  | 0.01698  | 0.04946  |
+| global_best     | 0.02363  | 0.01741  | 0.05804  |
+| best_per_delay  | 0.01994  | 0.01699  | 0.04924  |
+| best_per_noise  | 0.02431  | 0.01722  | 0.07941  |
+| **learned**     | **0.02009** | **0.01611** | **0.04944** |
+| oracle          | 0.01946  | 0.01605  | 0.05005  |
+
+delta vs oracle (positive = oracle より悪い):
+
+| strategy        | mean_delta  |   max     | conds_worse / 36 |
+|-----------------|-------------|-----------|------------------|
+| K=0.0           | +3.08781    | +4.35070  | 36               |
+| K=1.0           | +0.00047    | +0.00542  | 17               |
+| global_best     | +0.00417    | +0.01078  | 31               |
+| best_per_delay  | +0.00048    | +0.00545  | 15               |
+| best_per_noise  | +0.00484    | +0.03314  | 22               |
+| **learned**     | +0.00063    | +0.00250  | 29               |
+
+#### 要点
+
+- **Stage A は K=1.0 / oracle と実質同等**: mean delta vs oracle は +0.0006 (learned) vs +0.0005 (K=1.0)。
+- **learned の唯一の優位は max delta**: 0.00250 < K=1.0 の 0.00542 — worst-case で K=1 より頑健。
+- **K=0.0 は壊滅的** (3.11 m): forward-model alone の long-horizon error compound。Phase 3.3-min の傾向と一致。
+- **改善後の forward model で K-curve は非常に flat になった**: 同じ Phase 3.3-min グリッドでも、blending の利得が 0.005 m オーダーまで縮んだ。oracle (K=0.5/0.75/1.0 を選び分け) ですら K=1 比で 0.0005 しか勝てない。
+- **したがって Stage A の supervised condition-level K の価値は小さい**: 学習はうまく行く (CV abs_err 0.10 程度) が、それが tip_err に効くだけのレバレッジが今のグリッドには無い。
+
+#### 結論と次の方向
+
+Stage A は「学習自体は成立する」「ただし現グリッドでの実利は小さい」という結果。次の意味のある手は二つ:
+
+1. **Stage B (state-dependent gain)**: innovation norm / prediction discrepancy を入力に足す。
+   - 動機: Stage A の predicted K は「条件平均」しか出せない。エピソード内で生じる急変 (target switch, contact event) には反応できない。
+   - 期待: condition-stationary な静的 K では拾えない gain を per-step で出す。
+2. **より過酷な条件で再評価**:
+   - 大きい delay (>= 6 step もう少し増やす) や大 noise (sigma を 2-4倍)、closed-loop 制御下での long episode 等で、forward-model rollout error がふたたび blending を欲する領域に持っていく。
+   - 動機: 今の学習 forward model が静的 reach env で十分強くなり、blending gain を要しない地点に来てしまっている。
+
+合理的な順序は **(2) → (1)**: 先に「blending gain が再び意味を持つ条件」を作り、その上で Stage B を載せると効果が見える。Stage B を先に入れても "K がほぼ 1" の領域では state-dependent gain の出番がない。
+
+```text
+A. Phase 3.2 stress eval — 大 delay / 大 noise / closed-loop での learned vs K=1 / oracle 比較
+B. Phase 3.2 Stage B — innovation 等の state feature を gain predictor に追加
+C. Phase 4 collection (target_set 全 330 episode) — variance 改善が必要なら
+```
+
+設計判断ノート: `Logs/2026-05-10-myoarm-fse-phase32-stage-a-learned-gain-design-decisions.md`

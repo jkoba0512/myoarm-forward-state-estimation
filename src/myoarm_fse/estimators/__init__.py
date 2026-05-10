@@ -8,12 +8,33 @@ from myoarm_fse.estimators.fixed_kalman import (
     evaluate_estimator_on_log,
     synth_observations,
 )
+from myoarm_fse.estimators.learned import (
+    GainPredictor,
+    LearnedGainKalmanEstimator,
+    LearnedGainTrainConfig,
+    load_learned_gain_model,
+    load_oracle_table,
+    make_learned_gain_model_id,
+    save_learned_gain_model,
+    train_gain_predictor,
+)
 
 __all__ = [
+    # base
     "Estimator",
+    # fixed-gain
     "EstimationResult",
     "FixedGainKalmanEstimator",
     "aggregate_estimation_metrics",
     "evaluate_estimator_on_log",
     "synth_observations",
+    # learned-gain (Stage A)
+    "GainPredictor",
+    "LearnedGainKalmanEstimator",
+    "LearnedGainTrainConfig",
+    "load_learned_gain_model",
+    "load_oracle_table",
+    "make_learned_gain_model_id",
+    "save_learned_gain_model",
+    "train_gain_predictor",
 ]
