@@ -455,6 +455,9 @@ class TestAggregateEstimationMetrics:
         for name in ("qpos", "qvel", "act", "tip_pos", "target_pos", "reach_err"):
             assert out[f"mse_{name}_mean"] == pytest.approx(0.0, abs=1e-6)
         assert out["tip_estimation_error_mean"] == pytest.approx(0.0, abs=1e-6)
+        # Phase 3.3-min additions: final tip error and overall state mse.
+        assert out["tip_estimation_error_final"] == pytest.approx(0.0, abs=1e-6)
+        assert out["state_mse_mean"] == pytest.approx(0.0, abs=1e-6)
 
     def test_skip_cold_start_drops_short_episodes(self) -> None:
         spec = _make_spec()

@@ -414,7 +414,22 @@ def aggregate_estimation_metrics(
     *,
     skip_cold_start: bool = True,
 ) -> dict[str, Any]:
-    """Per-run summary of per-field MSE + tip estimation error."""
+    """Per-run summary of per-field MSE + tip estimation error.
+
+    Returned keys:
+
+    - ``n``: number of contributing episodes (post cold-start filter).
+    - ``mse_<field>_mean`` / ``mse_<field>_std`` for each layout field
+      (qpos / qvel / act / tip_pos / target_pos / reach_err).
+    - ``tip_estimation_error_mean`` / ``tip_estimation_error_std``:
+      mean Euclidean ``||tip_est - tip_true||`` averaged over time then
+      across episodes.
+    - ``tip_estimation_error_final``: same metric but at the *final*
+      recorded step (after cold-start), averaged across episodes.
+    - ``state_mse_mean``: mean squared error across all state
+      coordinates and time steps, averaged across episodes — useful
+      as a single scalar summary of estimator accuracy.
+    """
     result_list = list(results)
     if not result_list:
         return {"n": 0}
@@ -422,6 +437,8 @@ def aggregate_estimation_metrics(
     layout = result_list[0].layout
     per_field_mse: dict[str, list[float]] = {name: [] for name in layout}
     tip_err_list: list[float] = []
+    tip_final_list: list[float] = []
+    state_mse_list: list[float] = []
     n_total = 0
 
     for r in result_list:
@@ -435,6 +452,8 @@ def aggregate_estimation_metrics(
         tip_slice = layout["tip_pos"]
         tip_dist = np.linalg.norm(err[:, tip_slice], axis=1)
         tip_err_list.append(float(np.mean(tip_dist)))
+        tip_final_list.append(float(tip_dist[-1]))
+        state_mse_list.append(float(np.mean(err ** 2)))
 
     out: dict[str, Any] = {"n": n_total}
     for name, vals in per_field_mse.items():
@@ -447,7 +466,11 @@ def aggregate_estimation_metrics(
     if tip_err_list:
         out["tip_estimation_error_mean"] = float(np.mean(tip_err_list))
         out["tip_estimation_error_std"] = float(np.std(tip_err_list))
+        out["tip_estimation_error_final"] = float(np.mean(tip_final_list))
+        out["state_mse_mean"] = float(np.mean(state_mse_list))
     else:
         out["tip_estimation_error_mean"] = 0.0
         out["tip_estimation_error_std"] = 0.0
+        out["tip_estimation_error_final"] = 0.0
+        out["state_mse_mean"] = 0.0
     return out

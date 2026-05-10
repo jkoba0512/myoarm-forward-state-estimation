@@ -1676,3 +1676,176 @@ Phase C は不要、Phase A (collection 拡大は実施済み) と B (concat_dat
 設計判断ノート / 関連ノートは Obsidian 側を参照:
 
 - `Logs/2026-05-10-myoarm-fse-next-implementation-plan-after-fixed-kalman.md`
+
+### 2026-05-10: Phase 3.3-min (Robustness sweep) 完了
+
+実施計画ノート (`Logs/2026-05-10-myoarm-fse-next-implementation-plan-after-forward-model-cycle`) の **Phase 3.3-min** を実装・実行。fixed-gain Kalman の最適 K が `(noise_condition, delay)` でどう変わるかを 180 setting (3 controller × 4 noise × 3 delay × 5 gain × 2 episode) の grid で実測。
+
+#### 追加ファイル
+
+```text
+configs/estimators/fixed_kalman_robustness.yaml   # 4 noise conditions × 3 delays × 5 gains
+src/myoarm_fse/estimators/fixed_kalman.py         # aggregate_estimation_metrics に
+                                                  #   tip_estimation_error_final と
+                                                  #   state_mse_mean を追加
+scripts/evaluate_estimator.py                     # noise_conditions 対応、
+                                                  #   metrics.csv / best_by_condition.csv 出力
+tests/test_evaluate_estimator_cli.py              # 13 unit tests for script helpers
+tests/test_fixed_kalman.py                        # +2 assertions (final / state_mse)
+runs/estimators/2026-05-10T08-18-58Z/              # gitignored output
+  ├── config.json
+  ├── summary.json
+  ├── metrics.csv (180 rows)
+  ├── best_by_condition.csv (36 rows = 3 ctrl × 4 noise × 3 delay)
+  └── per_setting/noise_*/gain_*_delay_*/<run>.json
+```
+
+#### 確定した API
+
+```text
+# evaluate_estimator config 拡張 (後方互換):
+#   - 既存: obs_noise_sigma: dict        → "default" 1 condition
+#   - 新規: noise_conditions: {name: dict} → 複数 condition の grid 化
+# noise_conditions が指定されたとき自動的に metrics.csv / best_by_condition.csv を出力。
+
+aggregate_estimation_metrics(...) -> dict:
+  # 既存の per-field MSE と tip_estimation_error_mean/std に加えて:
+  + tip_estimation_error_final   # 最終 step の ||tip_est - tip_true||
+  + state_mse_mean               # 全 field × 全 step の error**2 の mean
+```
+
+#### Best gain by condition (`best_by_condition.csv` の summary)
+
+K で best が変わる場所を強調:
+
+```text
+controller    delay=0                    delay=2           delay=6
+──────────    ─────────────────────────  ──────────────    ──────────────
+random        none:   K=1.0  err=0.000   K=1.0  err=0.018  K=1.0  err=0.046
+              low:    K=1.0  err=0.004   K=1.0  err=0.018  K=1.0  err=0.046
+              medium: K=0.75 err=0.007   K=1.0  err=0.020  K=1.0  err=0.047
+              high:   K=0.5  err=0.013   K=1.0  err=0.024  K=1.0  err=0.049
+
+lowamp        none:   K=1.0  err=0.000   K=1.0  err=0.010  K=1.0  err=0.027
+              low:    K=0.75 err=0.004   K=1.0  err=0.011  K=1.0  err=0.027
+              medium: K=0.75 err=0.006   K=1.0  err=0.013  K=1.0  err=0.029
+              high:   K=0.5  err=0.011   K=0.75 err=0.018  K=1.0  err=0.032
+
+hold          none:   K=1.0  err=0.000   K=1.0  err=0.012  K=1.0  err=0.034
+              low:    K=0.75 err=0.004   K=1.0  err=0.012  K=1.0  err=0.034
+              medium: K=0.75 err=0.007   K=1.0  err=0.014  K=1.0  err=0.035
+              high:   K=0.5  err=0.011   K=1.0  err=0.019  K=1.0  err=0.038
+```
+
+#### パターン分析
+
+実施計画ノートの **期待パターンを全部 confirm**:
+
+1. **noise 高いほど中間 K が有利**: delay=0 で best K が `1.0 → 0.75 → 0.5` (none/low → medium → high) と単調シフト。3 controller すべてで同じ pattern。
+2. **delay 長いほど K=1.0 が有利**: delay≥2 では (lowamp/high/2 の K=0.75 を例外として) ほぼ全条件で K=1.0 が最良。delay 中の forward-roll で誤差累積、prediction の信頼度が落ちるため。
+3. **lowamp/hold で random より中間 K の領域が広い**: 同じ noise=low でも lowamp/hold は K=0.75 best、random は K=1.0 best。これは forward model がそれぞれの controller dynamics に対する prediction 精度の差を反映 (Step 8 後半で h=1 mse が hold < lowamp < random だったことと整合)。
+
+#### Hypothesis H3 検証の進展
+
+Phase 3.1 完了報告では「delay=0 で K=0.75 が K=1.0 を上回る」を 1 条件で示した。Phase 3.3-min ではこれを **noise level に応じた条件付き性能曲面** として地図化:
+
+- **delay=0、noise≥medium で中間 K が systematically 勝つ**: 中間 K の優位は research artifact ではなく noise-induced averaging の自然な帰結。
+- **delay≥2 で K=1.0 がほぼ常勝**: forward roll の誤差累積で prediction の貢献が薄れる。
+- **論文上の主張**: 「fixed-gain Kalman の最適 K は (noise, delay) に依存して変わる、特に delay=0 + 高 noise で prediction-observation blending が pure observation を上回る」を **3 controller × 4 noise × 3 delay の grid 全体で実証**。
+
+これで H3 を「単発 anecdotal 結果」ではなく「条件依存の性能曲面」として示せる。Phase 3.2 (learned/adaptive gain) が「条件に応じて最適 K を選ぶモデル」として位置づけられる research story が完成。
+
+#### Phase 3.2 への進む前提条件 (実施計画ノートより)
+
+```text
+1. 最良 K が noise / delay / controller によって変わる         ← satisfied
+2. 単一 fixed K では全条件をカバーできない                     ← satisfied
+3. 中間 K が有利な領域と K=1 が有利な領域が分かれる             ← satisfied
+```
+
+3 条件すべて satisfied → **Phase 3.2 (learned/adaptive gain) に進める**。
+
+learned gain の入力候補 (実施計画ノートより):
+
+```text
+innovation norm
+innovation per-field norm
+delay_steps
+noise_condition or noise sigma
+prediction uncertainty proxy
+previous gain
+controller/source condition
+```
+
+教師信号:
+
+- 最初は **condition-level best K** を pseudo-label として supervised
+- Phase 3.3-min の `best_by_condition.csv` がそのまま教師データに使える (36 行)
+
+比較対象:
+
+```text
+K=0.0 prediction-only
+K=1.0 observation-only
+best fixed K per global    (全条件の中で best 1 つ — 単一 K)
+best fixed K per delay     (delay ごとの best K — 4 種類の K)
+best fixed K per noise     (noise ごとの best K — 4 種類)
+learned K
+oracle best K              (Phase 3.3-min の best_by_condition そのもの)
+```
+
+learned gain が `best fixed K per delay` または `best fixed K per noise` に近づくかが判断基準。
+
+#### 検証
+
+```bash
+uv run pytest                # default: 522 passed, 40 deselected in 1.52 s
+uv run pytest -m myosuite    # 40 passed in 5.15 s
+
+uv run python scripts/evaluate_estimator.py \
+    --config configs/estimators/fixed_kalman_robustness.yaml
+# → 180 settings, 約 12 分 (CPU)
+# → runs/estimators/2026-05-10T08-18-58Z/
+#     ├── config.json
+#     ├── summary.json
+#     ├── metrics.csv (180 rows)
+#     ├── best_by_condition.csv (36 rows)
+#     └── per_setting/noise_*/gain_*_delay_*/<run>.json
+```
+
+合計 562 tests (+13 CLI helper + 0 修正 = `test_fixed_kalman.py` の 1 test に assertion 追加)。
+
+#### 設計判断ノートからの差分・補足
+
+実施計画ノートの記述からの逸脱は最小:
+
+1. **`metrics.csv` 列**: ノートに `tip_estimation_error_mean / final / std`、`state_mse_mean`、`mse_qpos_mean` 等が並んでいる。`mse_target_pos_mean` も追加 (per-field の完全な visibility のため)。
+2. **`best_by_condition.csv` の sort**: `(controller, noise_condition, delay_steps)` で sort して読みやすく。
+3. **後方互換**: 既存 `fixed_kalman_default.yaml` (`obs_noise_sigma` 単一 dict) は変更なしで動く。`noise_conditions` が指定されたときだけ CSV 出力に切り替わる。Phase 3.1 / improvement cycle の結果再現性は維持。
+4. **noise_conditions の値の field 名**: ノート例では `qpos_sigma` だが、既存 `NoisyObservationWrapper` API は bare 名 (`qpos`) を取るので、設定 YAML も bare 名に揃えた (整合性優先)。
+5. **計算量**: 期待 ~12-15 min、実測 約 12 min で許容範囲。
+
+#### 既知の制約
+
+1. **2 episode/baseline で std が小さい**: variance 評価には episode 数が少ない。Phase 3.2 / Phase 4 で追加 collection (Phase A 流) すれば解決。
+2. **`reach_err` も独立 noise を持つ**: schema 上は `tip_pos - target_pos` の derived field だが、現実装では独立 noise 加算。consistency-aware noise (target_pos noise + tip_pos noise から reach_err noise を導出) の選択肢あり、将来検討。
+3. **K=0 prediction-only は依然不安定**: noise=none/delay=2 でも K=0 で 0.018 m。closed-loop で使うには別途 forward model の long-rollout 改善が必要。
+
+#### 次にやること
+
+```text
+A. Phase 3.2 (learned/adaptive gain) に進む — 3 条件 satisfied、entry condition met
+   - estimator class: small MLP gain network
+   - input: innovation, delay_steps, noise descriptors, etc.
+   - 教師: best_by_condition.csv の condition-level best K
+   - 比較対象: K=0 / K=1 / best fixed (global, per-delay, per-noise) / oracle
+
+B. Phase 2 (PD endpoint + closed-loop integration) を保留
+   - Phase 3.2 で learned gain が出てから closed-loop に進むのが解釈しやすい
+
+C. 大規模 collection (target_set 全 330 episode) は Phase 3.2 評価で variance 改善が必要なら同時実施
+```
+
+設計判断ノートは Obsidian 側を参照:
+
+- `Logs/2026-05-10-myoarm-fse-next-implementation-plan-after-forward-model-cycle.md`

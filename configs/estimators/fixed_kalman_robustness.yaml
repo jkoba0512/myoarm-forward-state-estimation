@@ -1,0 +1,55 @@
+# Phase 3.3-min robustness sweep for fixed-gain Kalman.
+#
+# Sweeps gain x delay x noise_condition x controller. The noise_conditions
+# block lets us probe how the prediction-vs-observation tradeoff depends
+# on observation quality without re-collecting episodes — synth_observations
+# replays the Step 4 wrappers offline. For each named condition the
+# inner loop is the same as fixed_kalman_default.yaml, so the
+# default-config result remains reproducible.
+#
+# Sigma keys match NoisyObservationWrapper field names (qpos, qvel,
+# act, tip_pos, target_pos, reach_err); fields omitted from a
+# condition default to 0. The four conditions span "no noise" through
+# "high noise" by scaling the Phase 3.1 default sigmas roughly 0/0.5/1/2x.
+#
+# Runs at:
+#   uv run python scripts/evaluate_estimator.py \
+#       --config configs/estimators/fixed_kalman_robustness.yaml
+
+seed: 0
+forward_model: runs/models/2026-05-10T07-25-23Z
+
+runs:
+  - runs/episodes/2026-05-09T23-51-12Z   # random
+  - runs/episodes/2026-05-10T02-37-37Z   # lowamp
+  - runs/episodes/2026-05-10T02-38-00Z   # hold
+
+obs_compose: noisy_then_delayed
+
+gain_grid: [0.0, 0.25, 0.5, 0.75, 1.0]
+delay_grid: [0, 2, 6]
+
+noise_conditions:
+  none:
+    qpos: 0.0
+    qvel: 0.0
+    tip_pos: 0.0
+    reach_err: 0.0
+  low:
+    qpos: 0.005
+    qvel: 0.005
+    tip_pos: 0.0025
+    reach_err: 0.0025
+  medium:
+    qpos: 0.01
+    qvel: 0.01
+    tip_pos: 0.005
+    reach_err: 0.005
+  high:
+    qpos: 0.02
+    qvel: 0.02
+    tip_pos: 0.01
+    reach_err: 0.01
+
+skip_cold_start: true
+output_root: runs/estimators
