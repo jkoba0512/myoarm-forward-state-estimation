@@ -1136,3 +1136,106 @@ Phase 0 は **forward model 実装 (Step 8) を残すのみ** に近い状態。
 設計判断の経緯は Obsidian 側のログを参照:
 
 - `Logs/2026-05-10-myoarm-fse-step7-metrics-design-decisions.md`
+
+### 2026-05-10: Step 8 minimum (TransitionDataset) 完了
+
+Step 7 完了後の方向決定 (`Logs/2026-05-10-myoarm-fse-post-step7-next-direction-answer`) で **PD endpoint controller を defer して Step 8 forward model baseline に進む** ことを確定済み。今回は forward model 実装の前段として **transition dataset の構築・保存・分割** を整備した。
+
+#### 追加ファイル
+
+```text
+src/myoarm_fse/models/__init__.py          # 再エクスポート
+src/myoarm_fse/models/datasets.py          # TransitionDataset + build/shuffle/split helpers
+tests/test_model_datasets.py               # 42 tests
+```
+
+#### 確定した API
+
+```text
+TransitionDataset (frozen dataclass)
+  x: float32 (N, state_dim)
+  u: float32 (N, action_dim)
+  x_next: float32 (N, state_dim)
+  dx: float32 (N, state_dim)              # x_next - x
+  episode_index: int64 (N,)
+  state_dim: int
+  action_dim: int
+  n_episodes: int
+  episode_metadata: tuple[dict, ...]      # length n_episodes
+  .save(path) / .load(path)
+  .n -> int
+
+build_transitions(logs: Iterable[EpisodeLog]) -> TransitionDataset
+shuffle_transitions(dataset, *, rng=None) -> TransitionDataset
+split_by_episode(dataset, *, val_episode_ids: Iterable[int]) -> (train, val)
+```
+
+#### 確定した実装方針
+
+- **State representation**: `MyoArmState.flatten()` 全 field (`qpos | qvel | act | tip_pos | target_pos | reach_err`)、myoArm reach で **state_dim = 83** を実測確認 (20+20+34+3+3+3)。
+- **Action input**: `excitation` (post-SDN、Step 3 の canonical)。`excitation_command` でも `last_ctrl` でもない。
+- **Shape**: flat concat `(N, *)` + `episode_index: int64 (N,)` で episode 境界保持。`N = Σ_i (T_i - 1)`。
+- **除外条件**: 各 episode の last step のみ (no `x_{t+1}`)。`n_steps < 2` の episode は skip。mid-episode で `terminated`/`truncated` が立っていたら `ValueError` (rollout invariant 違反の defensive 検出)。
+- **Provenance**: dataset-level に `episode_metadata: tuple[dict, ...]`。各 dict は `{episode_id, target_id, target_split, target_seed, controller_name, controller_seed, sdn_sigma, sdn_seed, obs_noise_sigma, obs_noise_seed, obs_delay_steps, obs_compose, n_steps, transitions_used, config_hash}` を保持。per-transition trace は持たない (overkill)。
+- **Save/load**: `np.savez(allow_pickle=False)` 1 ファイル + `meta_json` を JSON string で埋め込み。TargetSet / EpisodeLog と同型。
+- **Immutable + 外部 helper**: `TransitionDataset` は `frozen=True, eq=False`。`shuffle_transitions` / `split_by_episode` は新 instance を返す pure function。
+- **`split_by_episode` は ID ベース**: `val_episode_ids: Iterable[int]` で `episode_metadata[i]["episode_id"]` の値を指定 (= original episode_id)。新 dataset 内で `episode_index` は 0..n_episodes-1 に reindex。
+- **Strict validation in `__post_init__`**: dtype / shape / finite / `dx == x_next - x` (`atol=1e-5`) / metadata length / JSON-serializability を全部 `ValueError` で fail-fast。empty (`N=0`) は許容。
+
+#### 既存 baseline 3 runs での実測
+
+```text
+random (sigma=0.2):   N=1198, state_dim=83, action_dim=34, n_episodes=2
+lowamp (sigma=0.05):  N=1198, state_dim=83, action_dim=34, n_episodes=2
+hold   (value=0.0):   N=1198, state_dim=83, action_dim=34, n_episodes=2
+```
+
+各 run = 2 episode × 600 step → 599 transitions × 2 = **1198 transitions** で計算が合う。state_dim 83 は schema 計算 (qpos 20 + qvel 20 + act 34 + tip 3 + target 3 + reach_err 3 = 83) と一致。
+
+`u[0,:5]` の値も controller の挙動を反映:
+
+- random (σ=0.2): `[0.44, 0.32, 0.66, 0.49, 0.35]` — 0.5 周辺に拡散
+- lowamp (σ=0.05): `[0.48, 0.45, 0.54, 0.50, 0.46]` — 0.5 にタイト
+- hold (value=0.0): `[0, 0, 0, 0, 0]` — silent muscles
+
+`dx[0,:5]` は 3 baseline で似た値 (`~0.004` のオーダー) — episode 開始直後は重力下の自然落下 dynamics が dominant で、controller の差が現れにくい。
+
+#### 検証
+
+```bash
+uv run pytest                # default: 427 passed, 40 deselected in 0.29 s
+uv run pytest -m myosuite    # 40 passed in 4.79 s
+```
+
+合計 467 tests (+42 = `test_model_datasets.py` の 42 unit)。
+
+#### Step 8 minimum 完了、本体 (MLP + training) は別フェーズ
+
+これで forward model dataset の **入口** が整った。Step 8 残作業:
+
+```text
+src/myoarm_fse/models/mlp.py           # residual MLP [x, u] -> Δx
+src/myoarm_fse/models/train.py         # training loop helpers
+scripts/train_forward_model.py         # CLI で training を走らせる
+scripts/evaluate_run.py                # reaching + prediction metrics の一括出力
+```
+
+設計判断ノートは別途整備する。
+
+#### Phase 0 全体の到達度
+
+```text
+Step 1: target set generator              完了
+Step 2: state schema                      完了
+Step 3: action adapter + motor noise      完了
+Step 4: delay / noisy obs wrappers        完了
+Step 5: episode logger (+ random ctrl)    完了
+Step 6: baseline controllers              ⚠ 部分完了 (Hold + factory; PD は defer)
+Step 7: reaching metrics                  完了
+Step 8: forward model baseline            ⚠ 部分完了 (TransitionDataset; MLP + training は次)
++ Option B: env factory + extractor       完了
+```
+
+設計判断の経緯は Obsidian 側のログを参照:
+
+- `Logs/2026-05-10-myoarm-fse-step8-transition-dataset-design-decisions.md`
