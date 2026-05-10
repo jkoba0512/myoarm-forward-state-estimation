@@ -723,3 +723,276 @@ test_targets_smoke.py          8 passed     (myosuite, new)
 
 - `Logs/2026-05-10-myoarm-fse-target-set-design-decisions.md`
 - `Logs/2026-05-10-myoarm-fse-target-set-design-decisions-answer.md`
+
+### 2026-05-10: Step 5 (episode logger + minimum random controller) 完了
+
+最初の rollout pipeline。Step 1〜4 + Option B + Step 1 を統合し、target set から episode を実行して trajectory を保存する layer を完成させた。
+
+#### 追加ファイル
+
+```text
+src/myoarm_fse/controllers/__init__.py
+src/myoarm_fse/controllers/base.py        # Controller Protocol
+src/myoarm_fse/controllers/random.py      # RandomController (clipped Gaussian)
+src/myoarm_fse/data/__init__.py
+src/myoarm_fse/data/schema.py             # EpisodeLog frozen dataclass + save/load
+src/myoarm_fse/data/rollout.py            # run_episode pure function + EpisodeSpec
+src/myoarm_fse/data/logger.py             # make_run_id, hash_config, RunIndex / IndexEntry
+configs/episodes/default.yaml
+scripts/collect_episodes.py               # CLI thin wrapper
+tests/test_random_controller.py           # 26 tests
+tests/test_episode_log.py                 # 16 tests
+tests/test_rollout.py                     # 17 tests, fake env (no MyoSuite)
+tests/test_logger.py                      # 9 tests
+tests/test_collect_episodes_smoke.py      # 9 tests, @pytest.mark.myosuite
+runs/episodes/{run_id}/                   # 生成された episode (untracked, gitignored)
+```
+
+#### 確定した API
+
+```text
+controllers.base.Controller (Protocol, runtime_checkable)
+  .action_dim
+  .reset(*, seed=None)
+  .act(observation: MyoArmState) -> np.ndarray   # excitation_command [0,1]^n
+
+controllers.random.RandomController(action_dim, mean=0.5, sigma=0.2, rng=None)
+
+data.schema.EpisodeLog  # frozen, eq=False
+  episode-level metadata: episode_id, target_id, target_split, target_seed,
+    target_pos_set, controller_name, controller_seed, sdn_sigma, sdn_seed,
+    obs_noise_sigma, obs_noise_seed, obs_delay_steps, obs_compose,
+    max_steps, n_steps, created_at, config_hash, meta
+  step arrays (T, *): step, time, true_*, obs_*, neural_command,
+    excitation_command, excitation, api_action, last_ctrl, reward,
+    terminated, truncated
+  .save(path) / .load(path)
+
+data.rollout.EpisodeSpec(episode_id, target_id, target_split, target_seed,
+                         controller_name, controller_seed, ...)
+data.rollout.run_episode(env, controller, target_pos, *, state_spec,
+    action_adapter, sdn=None, obs_noise=None, obs_delay=None,
+    obs_compose="noisy_then_delayed", max_steps=600, spec=None) -> EpisodeLog
+
+data.logger.make_run_id(now=None) -> str   # "2026-05-10T08-30-15Z"
+data.logger.hash_config(config: dict) -> str  # 12-char sha256 prefix
+data.logger.RunIndex(run_id, created_at, config_hash, config,
+                    target_set_path, episodes)
+  .append(IndexEntry)
+  .save(path) / .load(path)
+data.logger.IndexEntry(episode_id, file, target_id, target_seed, n_steps)
+```
+
+#### 確定した実装方針
+
+- **Pure function rollout**: `run_episode(...) -> EpisodeLog` で stateful logger object を持たない。step buffer は関数内で max_steps preallocate、終了時に `[:n_steps]` で slice。
+- **True / observed の両方を保存**: Step 4 の layer 境界に従い、true_qpos と obs_qpos など全 6 field を二重に持つ。identity wrapper の場合でも別 field として記録する。smoke test (`test_identity_pipeline_true_equals_obs`) で identity 条件下の値一致を担保。
+- **Command layer の保存**: `neural_command`, `excitation_command`, `excitation`, `api_action`, `last_ctrl` を分けて保存。現状 `neural_command == excitation_command` (identity) だが将来の controller 拡張のため。
+- **Last_ctrl 採用**: Option B で確定済みの通り、`mj_data.ctrl` ではなく `extract_ctrl(env)` (= `last_ctrl`) を保存。
+- **Obs composition**: 引数 `obs_compose: str` で `"noisy_then_delayed"` (default) か `"delayed_then_noisy"` を選択。unknown は `ValueError`。
+- **Controller boundary validation**: `run_episode` 内で controller 出力の shape / finite / `[0, 1]` range を strict 検証。silent clip しない (controller bug を見えるように)。
+- **Target injection**: Step 1 と同じ `mj_model.site_pos[target_sid] = target_pos; mujoco.mj_forward(...)` 方式を rollout 開始時に実施。env の `np_random` には依存しない。
+- **Ragged storage**: 各 episode は実際の step 数 `T` だけ保存、`n_steps` を metadata に保存。padding は dataset loader 側責務。
+- **Per-episode npz + index.json**: `runs/episodes/{run_id}/0000.npz, 0001.npz, ..., index.json` 形式。`run_id` は filesystem-safe UTC timestamp (`2026-05-10T08-30-15Z`)。
+- **Reproducibility**: `np.random.SeedSequence(master_seed).spawn(3 * n_episodes)` で各 episode に controller / sdn / obs_noise の child seed を派生。各 seed を episode metadata に保存。
+- **MyoSuite 不要 unit test**: `test_rollout.py` で fake env を作り、`mujoco.mj_forward` を `monkeypatch` で `site_pos -> site_xpos` copy に置き換えることで MyoSuite なしの 17 unit tests を実現。
+- **`__init__.py`**: `controllers/` と `data/` は通常通り再エクスポート (これらは MyoSuite に直接依存しないため、軽量 import を壊さない)。MyoSuite 依存は rollout の lazy 経路で間接的に呼ばれるが、`run_episode` を呼ばない限り副作用は走らない。
+
+#### CLI
+
+```bash
+uv run python scripts/collect_episodes.py --config configs/episodes/default.yaml
+```
+
+主要 override:
+
+```text
+--n-episodes      override config.n_episodes
+--master-seed     override config.master_seed
+--output-root     override config.output_root
+--target-set      override config.target_set
+```
+
+#### 初回 collection 結果
+
+```text
+Run id: 2026-05-09T23-51-12Z   (UTC)
+Output: runs/episodes/2026-05-09T23-51-12Z
+Target set: runs/targets/train.npz (n=200, taking 2)
+  [1/2] saved 0000.npz (n_steps=600, final_reach_err_norm=0.599)
+  [2/2] saved 0001.npz (n_steps=600, final_reach_err_norm=0.463)
+  saved index.json with 2 episodes
+```
+
+各 episode は ~825 KB の npz、`index.json` は 903 バイト。RandomController は target に到達しないので `final_reach_err_norm` は 0.5 m 前後 (target との初期距離が ~0.34〜1.2 m なので、random 動作だけでは reach できない、想定通り)。
+
+#### 検証
+
+```bash
+uv run pytest                # default: 298 passed, 39 deselected in 0.25 s
+uv run pytest -m myosuite    # 39 passed in 4.55 s
+```
+
+合計 337 tests:
+
+```text
+test_action_adapter.py            39 passed     (軽量)
+test_noise.py                     45 passed     (軽量)
+test_state_schema.py              58 passed     (軽量)
+test_wrappers.py                  49 passed     (軽量)
+test_targets.py                   38 passed     (軽量)
+test_random_controller.py         26 passed     (軽量, new)
+test_episode_log.py               16 passed     (軽量, new)
+test_rollout.py                   17 passed     (軽量, new — fake env + monkeypatch)
+test_logger.py                     9 passed     (軽量, new)
+test_package.py                    1 passed     (軽量)
+test_env_factory_smoke.py         12 passed     (myosuite)
+test_env_extractor_smoke.py       10 passed     (myosuite)
+test_targets_smoke.py              8 passed     (myosuite)
+test_collect_episodes_smoke.py     9 passed     (myosuite, new)
+```
+
+これで Step 5 (episode logger + minimum random controller) は完了。Phase 0 の **rollout / dataset collection 層** が動作。
+
+#### Phase 0 全体の到達度
+
+```text
+Step 1: target set generator              完了
+Step 2: state schema                      完了
+Step 3: action adapter + motor noise      完了
+Step 4: delay / noisy obs wrappers        完了
+Step 5: episode logger (+ minimum ctrl)   完了 (このステップ)
+Step 6: baseline controllers (hold, PD)   未着手 (random は Step 5 で minimum 実装済み)
+Step 7: reaching metrics                  未着手
+Step 8: forward model baseline            未着手
++ Option B: env factory + extractor       完了
+```
+
+Phase 0 の env-side / data-side が揃い、最初の smoke rollout が動く状態。
+
+未着手:
+
+- Step 6 残り: hold controller、PD endpoint controller
+- Step 7: reaching metrics (minimum tip error, final tip error, success rate, effort, prediction MSE)
+- Step 8: forward model baseline (residual MLP)
+
+設計判断の経緯は Obsidian 側のログを参照:
+
+- `Logs/2026-05-10-myoarm-fse-episode-logger-and-random-controller-design-decisions.md`
+- `Logs/2026-05-10-myoarm-fse-episode-logger-and-random-controller-design-decisions-answer.md`
+
+### 2026-05-10: Step 6 (HoldController + controller factory) 完了
+
+計画書 02 Step 6 候補のうち **HoldController のみ実装**。PDEndpointController は Step 7 (metrics) 完了後に着手することを設計判断ノートで確定 (PD on muscle env は inverse Jacobian + muscle moment-arm の inverse が biomechanically 重く、metrics で評価フレームが揃ってから入れるのが安全)。
+
+低振幅 random は **新 class を作らず**、`RandomController(sigma=0.05)` の preset config (`configs/episodes/lowamp_random.yaml`) で実現。
+
+#### 追加ファイル
+
+```text
+src/myoarm_fse/controllers/hold.py         # HoldController
+configs/episodes/lowamp_random.yaml        # RandomController(sigma=0.05) preset
+configs/episodes/hold.yaml                 # HoldController(value=0.0) preset
+tests/test_hold_controller.py              # 24 tests
+tests/test_make_controller.py              # 9 tests
+```
+
+#### 更新ファイル
+
+```text
+src/myoarm_fse/controllers/__init__.py     # HoldController re-export + make_controller
+scripts/collect_episodes.py                # _build_controller を make_controller に置換
+tests/test_collect_episodes_smoke.py       # test_hold_controller_in_pipeline 追加
+```
+
+#### 確定した API
+
+```text
+controllers.hold.HoldController(action_dim, value=0.0)
+  .action_dim
+  .value
+  .reset(*, seed=None)        # no-op (deterministic)、seed type validation のみ
+  .act(observation: MyoArmState) -> np.ndarray  # 全 muscle に value を broadcast
+
+controllers.make_controller(spec: dict, action_dim: int, seed: int) -> Controller
+  spec["name"] in {"random", "hold"}
+  unknown name / non-dict spec / missing name は ValueError
+```
+
+`HoldController.act` は事前に確保した output vector の copy を返す (caller が mutate しても以後の呼び出しに影響しない)。
+
+#### 確定した実装方針
+
+- **Hold = scalar value、全 muscle broadcast**: per-muscle vector は YAGNI、必要になれば後で拡張。`value` は `[0, 1]` clamp 内のみ許容、外は `ValueError`。
+- **`reset(seed=...)` は no-op だが seed type validation を実施**: Controller Protocol が `int | None` を期待するので、`bool` や `str` を渡すと `TypeError`。RandomController と同型のエラー挙動。
+- **Low-amplitude random は preset で表現**: `RandomController(sigma=0.05)` を `lowamp_random.yaml` で。新 class を増やすと Phase 0 の表面積が無駄に増える。
+- **`make_controller` factory は薄い if-elif**: registry pattern より明示的に書いた方が読める。controller が 5 個以上に増えたら `factory.py` に分離する。
+- **`HoldController` は seed を受け取るが無視**: factory signature の一貫性のため、deterministic な controller も `seed` を受け取る (使わないだけ)。
+
+#### CLI 実行結果と baseline 比較
+
+3 種類の baseline で初期 reach error の分布が明確に分かれることを確認:
+
+```text
+controller         final_reach_err_norm (episode 0 / 1)
+─────────────────  ─────────────────────────────────────
+random (σ=0.2)     0.599 / 0.463    (default、wild な random excitation)
+lowamp (σ=0.05)    0.151 / 0.375    (muscles が tonic 領域に留まる)
+hold (v=0.0)       0.299 / 0.353    (silent muscles、重力下の static drop)
+```
+
+低振幅 random が distance を最も縮める結果 (sigma=0.05 で muscle が中庸に留まり、tip 位置が target に近い姿勢になる)。Hold (silent) は重力で自然落下した姿勢から動かない。Default random は extreme 値を頻繁に取るので姿勢が動的に揺れて target から離れる。Phase 0 の baseline として明確な比較対象になる。
+
+#### 検証
+
+```bash
+uv run pytest                # default: 331 passed, 40 deselected in 0.26 s
+uv run pytest -m myosuite    # 40 passed in 4.79 s
+```
+
+合計 371 tests:
+
+```text
+test_action_adapter.py            39 passed     (軽量)
+test_noise.py                     45 passed     (軽量)
+test_state_schema.py              58 passed     (軽量)
+test_wrappers.py                  49 passed     (軽量)
+test_targets.py                   38 passed     (軽量)
+test_random_controller.py         26 passed     (軽量)
+test_episode_log.py               16 passed     (軽量)
+test_rollout.py                   17 passed     (軽量)
+test_logger.py                     9 passed     (軽量)
+test_hold_controller.py           24 passed     (軽量, new)
+test_make_controller.py            9 passed     (軽量, new)
+test_package.py                    1 passed     (軽量)
+test_env_factory_smoke.py         12 passed     (myosuite)
+test_env_extractor_smoke.py       10 passed     (myosuite)
+test_targets_smoke.py              8 passed     (myosuite)
+test_collect_episodes_smoke.py    10 passed     (myosuite, +1 hold case)
+```
+
+#### Phase 0 全体の到達度更新
+
+```text
+Step 1: target set generator              完了
+Step 2: state schema                      完了
+Step 3: action adapter + motor noise      完了
+Step 4: delay / noisy obs wrappers        完了
+Step 5: episode logger (+ random ctrl)    完了
+Step 6: baseline controllers              ⚠ 部分完了 (Hold + factory のみ; PD は Step 7 後)
+Step 7: reaching metrics                  未着手
+Step 8: forward model baseline            未着手
++ Option B: env factory + extractor       完了
+```
+
+これで Phase 0 の **3 種類の baseline controller** (random / lowamp_random / hold) が揃った。次は Step 7 (metrics) で評価フレームを確立し、その後で PDEndpointController に進む。
+
+未着手:
+
+- Step 6 残り: PDEndpointController (Step 7 後に着手)
+- Step 7: reaching metrics (minimum tip error, final tip error, success rate, effort, prediction MSE)
+- Step 8: forward model baseline (residual MLP)
+
+設計判断の経緯は Obsidian 側のログを参照:
+
+- `Logs/2026-05-10-myoarm-fse-step6-hold-controller-design-decisions.md`

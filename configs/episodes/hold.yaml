@@ -1,0 +1,32 @@
+# Hold controller preset (silent muscles).
+#
+# Constant excitation_command = 0.0 across all muscles for the entire
+# episode — useful as a "no-control baseline" recording the forward
+# dynamics under gravity alone, and as a control case for forward model
+# dataset variety.
+#
+# Set controller.value to a non-zero level (e.g. 0.05–0.1) to record a
+# low-tone hold instead.
+
+env_id: myoArmReachFixed-v0
+target_set: runs/targets/train.npz
+
+controller:
+  name: hold
+  value: 0.0
+
+master_seed: 0
+
+sdn:
+  sigma: 0.0
+
+obs_noise:
+  sigma: {}
+
+obs_delay_steps: 0
+obs_compose: noisy_then_delayed
+
+max_steps: 600
+n_episodes: 2
+
+output_root: runs/episodes

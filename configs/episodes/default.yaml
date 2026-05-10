@@ -1,0 +1,35 @@
+# Default episode collection config for Phase 0 smoke runs.
+#
+# Per-episode child seeds (controller / sdn / obs_noise) are derived from
+# master_seed via np.random.SeedSequence(master_seed).spawn(...).  Target
+# positions come from the npz at `target_set` (Step 1 output) — env's
+# np_random is not used (its seed handling does not control target
+# generation; see Step 1 probe results).
+#
+# `n_episodes: 2` keeps the first run small for smoke testing. Override
+# via --n-episodes to expand or null/omit to consume the entire target set
+# (see scripts/collect_episodes.py).
+
+env_id: myoArmReachFixed-v0
+target_set: runs/targets/train.npz
+
+controller:
+  name: random
+  mean: 0.5
+  sigma: 0.2
+
+master_seed: 0
+
+sdn:
+  sigma: 0.0
+
+obs_noise:
+  sigma: {}
+
+obs_delay_steps: 0
+obs_compose: noisy_then_delayed
+
+max_steps: 600
+n_episodes: 2
+
+output_root: runs/episodes

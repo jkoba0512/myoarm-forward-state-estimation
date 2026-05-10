@@ -1,0 +1,31 @@
+# Low-amplitude random excitation preset.
+#
+# Identical to default.yaml except controller.sigma is reduced from 0.2
+# to 0.05, so muscle excitations stay close to the configured mean
+# (0.5). Used to build the "low-amplitude random" episode batch listed
+# alongside "random excitation" in calc 02 Step 6 — implemented as a
+# config preset rather than a separate controller class.
+
+env_id: myoArmReachFixed-v0
+target_set: runs/targets/train.npz
+
+controller:
+  name: random
+  mean: 0.5
+  sigma: 0.05
+
+master_seed: 0
+
+sdn:
+  sigma: 0.0
+
+obs_noise:
+  sigma: {}
+
+obs_delay_steps: 0
+obs_compose: noisy_then_delayed
+
+max_steps: 600
+n_episodes: 2
+
+output_root: runs/episodes
