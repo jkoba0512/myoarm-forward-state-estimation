@@ -996,3 +996,143 @@ Step 8: forward model baseline            未着手
 設計判断の経緯は Obsidian 側のログを参照:
 
 - `Logs/2026-05-10-myoarm-fse-step6-hold-controller-design-decisions.md`
+
+### 2026-05-10: Step 7 (reaching metrics + prediction interface stub) 完了
+
+計画書 02 Step 7 の reaching metrics をフル実装、prediction metrics は **interface signature を pure 実装で stub** として置いた (Step 8 で forward model が prediction MSE を消費する側で利用)。
+
+#### 追加ファイル
+
+```text
+src/myoarm_fse/metrics/__init__.py
+src/myoarm_fse/metrics/reaching.py       # minimum_tip_error / final_tip_error / success / effort_norm
+src/myoarm_fse/metrics/prediction.py     # one_step_prediction_mse / rollout_mse / tip_prediction_error
+src/myoarm_fse/metrics/aggregate.py      # aggregate_reaching
+tests/test_metrics_reaching.py           # 24 tests
+tests/test_metrics_prediction.py         # 20 tests
+tests/test_metrics_aggregate.py          # 10 tests
+```
+
+#### 確定した API
+
+```text
+# reaching: EpisodeLog 入力、scalar / bool 出力
+metrics.reaching.minimum_tip_error(log) -> float                # n_steps==0 → inf
+metrics.reaching.final_tip_error(log)   -> float                # n_steps==0 → inf
+metrics.reaching.success(log, *, threshold=0.05, duration=10) -> bool
+metrics.reaching.effort_norm(log)       -> float                # mean over t of L2² of excitation
+
+# prediction: ndarray 入力、scalar 出力 (Step 8 で forward model が呼ぶ)
+metrics.prediction.one_step_prediction_mse(true_next, pred_next) -> float    # (T, D)
+metrics.prediction.rollout_mse(true_traj, pred_traj)             -> float    # (T, D)
+metrics.prediction.tip_prediction_error(true_tip, pred_tip)      -> float    # (T, 3)、distance not MSE
+
+# batch aggregation
+metrics.aggregate.aggregate_reaching(logs, *, threshold=0.05, duration=10)
+  -> dict[str, float]   # n / *_mean / *_median / *_std / success_rate / effort_mean / effort_std
+                        # + threshold, duration を返り値に含める (再現性のため)
+```
+
+#### 確定した実装方針
+
+- **全 reaching metric は `true_*` (oracle) を読む**: observation noise / delay は controller の handicap であって、評価者は真値で判断する (Q10)。`obs_*` は metric 計算には使わない。
+- **`effort_norm` は `excitation` (post-SDN)** を読む: Step 3 の canonical 表現。SDN ノイズ込みの「実際に筋に流れた activation」に対応。`excitation_command` (pre-SDN) でも `last_ctrl` (post-sigmoid) でもない。
+- **Effort は mean-of-squares L2²、time-average**: `(1/T) * Σ_t ||u_t||₂²`。control theory の quadratic cost と整合、ragged episode との比較も成立。
+- **Success は sustained 条件**: 「`||tip - target|| < threshold` を連続 `duration` step 維持」。default `threshold=0.05 m`、`duration=10 step` (= 0.2 s)。瞬間タッチでは reach の完了とみなさない。strict 不等号 (boundary は False)。実装は cumsum で sliding-window all-True を計算。
+- **Final tip error は last step のみ**: `||true_reach_err[-1]||`。sustained は success が扱うので二重カウントしない。`n_steps==0` は `inf`。
+- **Aggregate は薄い helper**: `dict[str, float]` を返す pure function。empty 入力は `{"n": 0}`。`threshold` / `duration` も dict に含めて再現性を担保。
+- **Pure function 統一**: class / registry / callable dataclass は導入しない。controllers / data と同じスタイル。
+- **CLI は作らない**: Step 8 (forward model) で `evaluate_run.py` を立ち上げる時点で reaching + prediction を一括出力する CLI を整備する。Step 7 では library 関数のみ。
+
+#### Prediction metrics の stub 実装
+
+prediction metrics は実は **forward model に依存しない pure な MSE / 距離計算** なので、interface stub と言いつつ完全実装した:
+
+```python
+def one_step_prediction_mse(true_next, pred_next) -> float
+def rollout_mse(true_traj, pred_traj) -> float
+def tip_prediction_error(true_tip, pred_tip) -> float
+```
+
+入力 ndarray の shape mismatch / NaN / Inf は `ValueError`。empty (`T=0`) は `0.0`。Step 8 で forward model から predicted trajectory を得たら、そのまま呼び出して評価できる。
+
+#### 既存 baseline 3 runs での実測
+
+Step 5 / Step 6 で生成した 3 runs (random / lowamp / hold) を `aggregate_reaching` に通した結果:
+
+```text
+                     random (σ=0.2)   lowamp (σ=0.05)   hold (v=0.0)
+                     ────────────────  ────────────────  ──────────────
+n                       2                   2                  2
+minimum_tip_error       0.2015              0.1558             0.2974
+final_tip_error         0.5310              0.2629             0.3260
+success_rate            0.0                 0.0                0.0
+effort_mean             9.8102              8.5831             0.0000
+```
+
+解釈:
+
+- **lowamp が距離 metrics で best** (`min` 0.156、`final` 0.263)。tonic 領域の muscle activation が arm を target 近傍に保つ。
+- **hold は effort=0** (excitation=0 なので L2²=0)。ただし距離は worst で arm が動かないだけ。
+- **random は effort 最大** (extreme 値で `||u||²` が大きい) かつ距離も worst。wild な excitation で arm が振り回される。
+- **全 baseline `success_rate=0`**: 5 cm 以内に 0.2 s 留まる goal-directed な動きはない、想定通り。
+
+`success_rate` を 0 から動かすには PD endpoint controller (Step 6 残) もしくは forward-model-based RL (Step 8 以降) が必要。これで「PD が機能しているか」を評価する基盤ができた。
+
+#### 検証
+
+```bash
+uv run pytest                # default: 385 passed, 40 deselected in 0.27 s
+uv run pytest -m myosuite    # 40 passed in 4.87 s
+```
+
+合計 425 tests:
+
+```text
+test_action_adapter.py            39 passed
+test_noise.py                     45 passed
+test_state_schema.py              58 passed
+test_wrappers.py                  49 passed
+test_targets.py                   38 passed
+test_random_controller.py         26 passed
+test_episode_log.py               16 passed
+test_rollout.py                   17 passed
+test_logger.py                     9 passed
+test_hold_controller.py           24 passed
+test_make_controller.py            9 passed
+test_metrics_reaching.py          24 passed   (new)
+test_metrics_prediction.py        20 passed   (new)
+test_metrics_aggregate.py         10 passed   (new)
+test_package.py                    1 passed
+test_env_factory_smoke.py         12 passed     (myosuite)
+test_env_extractor_smoke.py       10 passed     (myosuite)
+test_targets_smoke.py              8 passed     (myosuite)
+test_collect_episodes_smoke.py    10 passed     (myosuite)
+```
+
+#### Phase 0 全体の到達度更新
+
+```text
+Step 1: target set generator              完了
+Step 2: state schema                      完了
+Step 3: action adapter + motor noise      完了
+Step 4: delay / noisy obs wrappers        完了
+Step 5: episode logger (+ random ctrl)    完了
+Step 6: baseline controllers              ⚠ 部分完了 (Hold + factory; PD は metrics で評価可能になったので次に着手可)
+Step 7: reaching metrics                  完了 (prediction は stub だが pure function として実装済み)
+Step 8: forward model baseline            未着手
++ Option B: env factory + extractor       完了
+```
+
+Phase 0 は **forward model 実装 (Step 8) を残すのみ** に近い状態。残作業:
+
+- Step 6 残: PDEndpointController (metrics で評価フレームが整ったので次に着手可能)
+- Step 8: forward model baseline (residual MLP)
+  - dataset loader (EpisodeLog → (state, action, next_state) tuples)
+  - residual MLP `[x_t, u_t] → Δx_t`
+  - one-step / rollout 評価 (prediction metrics を呼ぶ)
+  - `scripts/train_forward_model.py`、`scripts/evaluate_run.py`
+
+設計判断の経緯は Obsidian 側のログを参照:
+
+- `Logs/2026-05-10-myoarm-fse-step7-metrics-design-decisions.md`
