@@ -2204,3 +2204,91 @@ C. forward model の long-horizon supervision — delay>0 で K<1 が有意に�
 ```
 
 設計判断ノート / 報告書: `Logs/2026-05-11-myoarm-fse-phase32-stage-b-completion-report.md`
+
+---
+
+### Phase 2 closed-loop MVP (E heuristic / D joint-space PD) 完了報告 (2026-05-11)
+
+#### 目的
+
+Phase 3.2 で確立した estimator quality (Stage A retrained 等) が closed-loop reaching 指標に伝播するかを検証。実装計画 (`Logs/2026-05-11-myoarm-fse-phase2-closed-loop-implementation-plan.md`) の通り、MVP は **E (heuristic)** から始め、結果次第で **D (joint-space PD + IK)** に upgrade。
+
+#### 共通インフラ (E と D で再利用)
+
+```
+src/myoarm_fse/evaluation/closed_loop.py   # run_closed_loop_episode
+src/myoarm_fse/metrics/closed_loop.py      # max_tip_error, overshoot, closed_loop_episode_summary
+scripts/evaluate_closed_loop.py            # CLI (controller spec を切替で E / D 両対応)
+configs/closed_loop/{heuristic,joint_pd}_mvp.yaml
+```
+
+評価グリッド: **3 noise × 2 delay × 3 estimators × 10 eps = 180 rollouts**
+- estimators: K=0.0 / K=1.0 / Stage A retrained (`runs/learned_gain_models/2026-05-10T11-51-09Z/`)
+
+#### E: HeuristicReachController
+
+`u = sigmoid(logit_base + gain * W @ -reach_err_est)`、W は (34, 3) random fixed (seed=13)。
+
+結果 (`runs/closed_loop/2026-05-11T06-15-10Z/`):
+
+- pipeline 完走、estimator 差は **estimation channel に明確** (K=0 ~6 m 発散、K=1 ~0.06 m、learned 0.005-0.04 m at d=0)
+- **しかし task 指標は estimator に non-sensitive**: K=1 vs learned で final_tip 差 ~0.001 m、全 estimator で success_005 = 0%
+- final_tip ≈ 0.70-0.71 m 全条件 (starting distance ~0.68 m)
+- 診断: random W は target 方向と無関係に muscle activation を生む → tip が target に向かわない
+- 実装計画ノートの **"controller 設計を見直す条件"** が hit → D へ upgrade
+
+#### D: JointSpacePDController + IK precompute
+
+新規実装:
+- `src/myoarm_fse/envs/ik.py` — `solve_ik(env, target_pos)` (Jacobian-pseudoinverse 反復、damped LM)、`actuator_moment_dense(env)` (sparse → dense 変換)
+- `src/myoarm_fse/controllers/joint_pd.py` — episode 開始時に IK で `target_qpos` を計算、PD: `u_joint = Kp*(target - qpos_est) - Kd*qvel_est`、muscle mapping: `u_muscle = clip(action_scale * relu(moment_arm @ u_joint), 0, 1)`
+
+校正済 gains: `Kp=30, Kd=3, action_scale=5.0`。
+
+結果 (`runs/closed_loop/2026-05-11T07-08-39Z/`):
+
+主要 final_tip 比較 (learned - K=1.0):
+
+```
+noise=none  d= 0   Δ = +0.0005 (同等)
+noise=none  d=18   Δ = -0.0856 (learned が 8.6 cm 良い)
+noise=high  d= 0   Δ = -0.0206
+noise=high  d=18   Δ = -0.0036
+noise=xhigh d= 0   Δ = -0.0047
+noise=xhigh d=18   Δ = +0.0103
+```
+
+代表 group means:
+
+| estimator | noise | delay | final_tip | min_tip |
+|---|---|---|---|---|
+| K=1.0 | none | 18 | 0.7436 | 0.5998 |
+| **learned** | **none** | **18** | **0.6580** | 0.5678 |
+| K=0.0 | * | 0 | 0.7065 | 0.5538 |
+
+#### 観察と教訓
+
+1. **D の pipeline は機能している**: arm が実際に動く (min_tip 0.55-0.61 で starting 0.68 から大きく接近)、effort_norm 14 (活発な muscle activation)。
+2. **estimator 差が初めて task 指標に明確に出た**: (noise=none, delay=18) で **learned 0.658 vs K=1.0 0.744 (Δ -8.6 cm)**。
+3. **しかし reaching success は依然 0%** 全条件 (success_005、final_tip ≥ 0.66 m)。
+4. **co-contraction**: relu(moment @ u_joint) で複数 muscle 同時 fire (effort 14 = RMS 0.64 → ~22 muscle active) → arm が乱暴に動くだけで精緻な軌跡を作れない。
+
+#### 結論
+
+- E → D の upgrade で **estimator quality が closed-loop に伝播する条件 (delay 環境) を確認**: noise=none + delay=18 で learned が K=1 比 8.6 cm 改善。
+- しかし全 estimator で **reaching success は依然 0%**: PD + moment-relu controller の限界。本格 reach controller は別研究域。
+- Phase 2 の本来の目的は **部分的に確認できた**: 検出可能だが幅は小さく (8.6 cm 改善 / starting 68 cm の中で)、reaching success には届かない。
+
+#### 次の方向
+
+```text
+A. Phase 4 collection + BC (推奨)
+   - D-driven demos + tiny BC policy で reaching success を確保 → estimator 差を再評価
+B. forward model long-horizon supervision
+   - 「delay >= 6 で K=1 が構造的に最適」を緩和、blending 領域を拡大
+C. controller tuning (継続) は別研究域、深追いしない
+```
+
+合理的順序: **A → B**。
+
+設計判断ノート / 完了報告: `Logs/2026-05-11-myoarm-fse-phase2-mvp-completion-report.md` (E)、`Logs/2026-05-11-myoarm-fse-phase2-d-completion-report.md` (D)
