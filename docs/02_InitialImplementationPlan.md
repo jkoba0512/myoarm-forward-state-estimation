@@ -2292,3 +2292,119 @@ C. controller tuning (継続) は別研究域、深追いしない
 合理的順序: **A → B**。
 
 設計判断ノート / 完了報告: `Logs/2026-05-11-myoarm-fse-phase2-mvp-completion-report.md` (E)、`Logs/2026-05-11-myoarm-fse-phase2-d-completion-report.md` (D)
+
+---
+
+### Phase 4 BC pipeline 完了報告 (2026-05-11)
+
+#### 目的
+
+Phase 2 D で見えた "reaching success 0%" を打破。ScriptedReach (IK + smoothstep ramp + 既存 muscle mapping) で true_state demonstrations を集めて tiny BC policy を学習、closed-loop で estimator quality 比較を再実行する。
+
+#### 実装
+
+新規ファイル:
+```
+src/myoarm_fse/controllers/scripted_reach.py   # ScriptedReachController (time-varying PD target)
+src/myoarm_fse/controllers/bc.py               # BCPolicy / BCController / train_bc_policy / save_load
+src/myoarm_fse/controllers/__init__.py         # +re-exports
+scripts/collect_bc_demos.py                    # demo collection CLI
+scripts/train_bc.py                            # BC training CLI
+scripts/evaluate_closed_loop.py                # +bc controller branch
+configs/closed_loop/bc_demo_collect.yaml       # demo collection (30 eps)
+configs/closed_loop/bc_train.yaml              # BC training (100 epochs)
+configs/closed_loop/bc_mvp.yaml                # BC closed-loop eval (180 rollouts)
+```
+
+#### Step 1: ScriptedReachController smoke
+
+3 episode × 3 hyperparameter で IK + smoothstep ramp の reaching 性能を確認:
+
+```
+Ep 0 (init=0.50): ramp=200/Kp=30/scale=5 → min 0.18
+Ep 1 (init=0.44): 同上              → min 0.07 (success_005 閾値に肉薄!)
+Ep 2 (init=1.05): 同上              → min 0.47 (far target は厳しい)
+```
+
+D の constant-target に対し 4-10× の min_tip 改善。`ramp_steps=200, Kp=30, action_scale=5` を採用。
+
+#### Step 2: Demo collection
+
+`runs/bc_demos/2026-05-11T08-14-18Z/`: 30 episodes × 600 steps = **18,000 (state, action) pairs**。
+- success_005 (min_tip < 0.05): 1/30 (3%)
+- success_010 (min_tip < 0.10): 7/30 (23%)
+- min_tip median: ~0.20 m
+
+#### Step 3: BC training
+
+`runs/bc_policies/2026-05-11T08-16-15Z/` — 100 epochs、loss 収束:
+- train loss: 0.0020, val loss: 0.0021 (no overfitting)
+- Architecture: 83 → 256 → 256 → 34 + sigmoid
+
+#### Step 4: BC closed-loop eval (`runs/closed_loop/2026-05-11T08-16-43Z/`)
+
+180 rollouts (3 noise × 2 delay × 3 estimators × 10 eps)。
+
+group means (10 eps each):
+
+| estimator | noise | delay | final_tip | min_tip | tip_est | S005 | S010 | S015 |
+|---|---|---|---|---|---|---|---|---|
+| K=0.0 | * | 0 | 0.7034 | 0.4476 | 5.47 | 0.00 | 0.10 | 0.20 |
+| K=0.0 | * | 18 | 0.7019 | 0.4474 | 5.45 | 0.00 | 0.10 | 0.20 |
+| K=1.0 | none | 0 | 0.4793 | 0.4533 | 0.000 | 0.00 | 0.10 | 0.20 |
+| K=1.0 | xhigh | 0 | 0.4771 | **0.4445** | 0.057 | 0.00 | **0.20** | **0.30** |
+| learned | * | * | 0.50 | 0.46 | 0.003-0.22 | 0.00 | 0.10 | 0.20 |
+
+#### 主要な観察
+
+1. **Reaching 性能の大幅改善** vs D MVP:
+   - min_tip 0.44-0.47 m (D は 0.55-0.78)
+   - success_010 = 10% 全条件、success_015 = 20-30% (D は 0% 全条件)
+2. **しかし estimator 差は減少**:
+   - BC: K=1.0 vs learned で |Δ| < 0.025 m
+   - D: 同じ比較で max Δ = -8.6 cm (noise=none, delay=18)
+3. **K=0 が同等性能を示す驚き**:
+   - K=0 + BC: min_tip 0.447 (best)、tip_est 5.5 m (発散) にも関わらず
+   - K=1 + BC: min_tip 0.45
+   - BC policy が estimator divergence に **頑健** — おそらく env-fixed の `target_pos` を強く使い、qpos/qvel 劣化に open-loop 的に振る舞う
+4. **xhigh + delay=0 が最高成績**: K=1.0 で success_010=20%, success_015=30%。観測ノイズが行動の確率的探索を増やし、たまたま target に近づくケースが増えた可能性
+
+#### 解釈と研究的含意
+
+Phase 2 vs 4 で **trade-off 構造** が明らかに:
+
+| controller | reaching success | estimator sensitivity |
+|---|---|---|
+| **D** (joint PD + IK) | 0% | △ (1 cell で 8.6 cm Δ) |
+| **BC** (from demos) | 20-30% (S015) | ✗ (\|Δ\| < 2.5 cm) |
+
+- D は state-coupled だが co-contraction で reaching が成立しない
+- BC は demo を模倣して reaching するが、open-loop 化して state 入力 (= estimator 出力) への依存が弱まる
+- **closed-loop で estimator quality を differentiable に測るには、両方を満たす controller が必要** — 現状の MVP では片方ずつしか手に入らない
+
+これは Phase 2-4 の最終形ではなく **次の研究軸**:
+- BC を **state coupling を強める形で再訓練** (target_pos を入力から落とす、ノイジー demo を使う、state-action 相関を強化する補助 loss)
+- または **D を強化** (co-contraction を打破する muscle agonist-clustering / hand-designed mapping)
+- forward model long-horizon supervision で blending gain の意味領域を拡げる (= delay 大領域での estimator differentiation)
+
+#### 結論
+
+Phase 4 BC は **reaching success を 0% → 20-30%** に押し上げたが、**estimator quality の closed-loop 影響は逆に縮小**。Phase 2 D の estimator 差 (8.6 cm) > Phase 4 BC の estimator 差 (≤2.5 cm)。
+
+研究問い「estimator quality は closed-loop に効くか」への答えは:
+- **Yes, but controller-dependent**: D 系で 8.6 cm の signal が出る (delay 大領域)
+- **BC 系では cancel される**: open-loop 化のため。BC を state-sensitive に作り直すか、別 controller 戦略が要る
+
+#### 次の方向
+
+```text
+A. BC を state-sensitive にする変種 (推奨)
+   - target_pos を BC 入力から除外 (= state-only BC) → policy が state を強く使わざるを得ない
+   - または demo を noisier にする (training-time augmentation)
+B. forward model long-horizon supervision で blending 領域拡大
+   - Phase 3.2 の構造的問題を解消
+C. Phase 2-4 全体の論文化 (現在の結果でも論文の核としては成立)
+   - 中心メッセージ: "estimator quality が closed-loop に伝播する条件 = state-coupled controller + delay"
+```
+
+設計判断ノート / 完了報告: `Logs/2026-05-11-myoarm-fse-phase4-bc-mvp-completion-report.md`

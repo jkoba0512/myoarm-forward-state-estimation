@@ -25,7 +25,12 @@ from typing import Any
 import numpy as np
 import yaml
 
-from myoarm_fse.controllers import JointSpacePDController, make_controller
+from myoarm_fse.controllers import (
+    BCController,
+    JointSpacePDController,
+    load_bc_policy,
+    make_controller,
+)
 from myoarm_fse.data.rollout import EpisodeSpec
 from myoarm_fse.envs.actions import ActionAdapter, detect_action_dim
 from myoarm_fse.envs.factory import make_env
@@ -192,6 +197,17 @@ def main(argv: list[str] | None = None) -> Path:
         delay_grid = [int(d) for d in cfg["delay_grid"]]
         estimators = list(cfg["estimators"])
         controller_spec = dict(cfg["controller"])
+        bc_policy_cache = None
+        if controller_spec.get("name") == "bc":
+            bc_path = controller_spec.get("bc_policy_path")
+            if not bc_path:
+                raise SystemExit(
+                    "controller.bc_policy_path required for name='bc'"
+                )
+            bc_policy_cache, bc_config, _bc_metrics = load_bc_policy(bc_path)
+            print(f"  loaded BC policy: {bc_path}  "
+                  f"(state_dim={bc_policy_cache.state_dim}, "
+                  f"action_dim={bc_policy_cache.action_dim})")
         sdn_sigma_cfg = float(cfg.get("sdn", {}).get("sigma", 0.0))
         success_thresholds = tuple(
             float(t) for t in cfg.get("success_thresholds", (0.05,))
@@ -295,7 +311,16 @@ def main(argv: list[str] | None = None) -> Path:
 
                         target_pos = target_set.target_pos[ep_idx]
 
-                        if controller_spec.get("name") == "joint_pd":
+                        if controller_spec.get("name") == "bc":
+                            # Pre-loaded BC policy (loaded once outside loop;
+                            # we just wrap it per episode for protocol clarity).
+                            bc_policy = bc_policy_cache
+                            controller = BCController(
+                                policy=bc_policy, action_dim=action_dim,
+                            )
+                            controller.reset(seed=controller_seed)
+                            ik_info = None
+                        elif controller_spec.get("name") == "joint_pd":
                             # Pre-solve IK to get target_qpos and snapshot
                             # the moment-arm matrix at the env's current
                             # (neutral, post-reset) pose. Both calls

@@ -3,18 +3,36 @@
 from typing import Any
 
 from myoarm_fse.controllers.base import Controller
+from myoarm_fse.controllers.bc import (
+    BCController,
+    BCPolicy,
+    BCTrainConfig,
+    load_bc_policy,
+    make_bc_model_id,
+    save_bc_policy,
+    train_bc_policy,
+)
 from myoarm_fse.controllers.heuristic_reach import HeuristicReachController
 from myoarm_fse.controllers.hold import HoldController
 from myoarm_fse.controllers.joint_pd import JointSpacePDController
 from myoarm_fse.controllers.random import RandomController
+from myoarm_fse.controllers.scripted_reach import ScriptedReachController
 
 __all__ = [
+    "BCController",
+    "BCPolicy",
+    "BCTrainConfig",
     "Controller",
     "HeuristicReachController",
     "HoldController",
     "JointSpacePDController",
     "RandomController",
+    "ScriptedReachController",
+    "load_bc_policy",
+    "make_bc_model_id",
     "make_controller",
+    "save_bc_policy",
+    "train_bc_policy",
 ]
 
 

@@ -1,0 +1,20 @@
+# Phase 4: BC demonstration collection with ScriptedReachController +
+# true_state. Reads the same target set as the Phase 2 evals so the
+# downstream BC closed-loop comparison runs against matched targets.
+
+env_id: myoArmReachFixed-v0
+horizon: 600
+
+target_set: runs/targets/train.npz
+n_episodes: 30
+
+controller:
+  ramp_steps: 200
+  Kp: 30.0
+  Kd: 3.0
+  action_scale: 5.0
+  ik_max_iter: 200
+  ik_tol: 0.01
+  ik_damping: 0.1
+
+output_root: runs/bc_demos

@@ -1,0 +1,48 @@
+# Phase 4 BC MVP: closed-loop evaluation with a trained BC policy as the
+# controller. Same grid as heuristic_mvp / joint_pd_mvp; differs only in
+# controller spec.
+
+seed: 0
+
+env_id: myoArmReachFixed-v0
+horizon: 600
+
+forward_model: runs/models/2026-05-10T07-25-23Z
+
+target_set: runs/targets/train.npz
+episodes_per_cell: 10
+
+obs_compose: noisy_then_delayed
+
+noise_conditions:
+  none:    { qpos: 0.0,   qvel: 0.0,   tip_pos: 0.0,    reach_err: 0.0 }
+  high:    { qpos: 0.02,  qvel: 0.02,  tip_pos: 0.01,   reach_err: 0.01 }
+  xhigh:   { qpos: 0.08,  qvel: 0.08,  tip_pos: 0.04,   reach_err: 0.04 }
+
+delay_grid: [0, 18]
+
+estimators:
+  - name: K=0.0
+    kind: fixed
+    gain: 0.0
+  - name: K=1.0
+    kind: fixed
+    gain: 1.0
+  - name: learned_stage_a_retrained
+    kind: learned
+    learned_gain_model: runs/learned_gain_models/2026-05-10T11-51-09Z
+
+controller:
+  name: bc
+  # Filled in below at run time once the BC policy is trained.
+  bc_policy_path: runs/bc_policies/2026-05-11T08-16-15Z
+
+sdn:
+  sigma: 0.0
+
+success_thresholds: [0.05, 0.10, 0.15]
+success_duration: 10
+skip_cold_start_steps_use_delay: true
+save_per_episode: true
+
+output_root: runs/closed_loop
