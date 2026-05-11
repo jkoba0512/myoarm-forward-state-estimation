@@ -14,8 +14,10 @@ from myoarm_fse.controllers import (
     BCTrainConfig,
     make_bc_model_id,
     save_bc_policy,
+    state_feature_indices,
     train_bc_policy,
 )
+from myoarm_fse.envs.state import StateSpec
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -38,10 +40,32 @@ def main(argv: list[str] | None = None) -> Path:
         cfg.setdefault("output", {})["output_root"] = str(args.output_root)
 
     data = np.load(args.demos)
-    states = data["states"]
+    states_full = data["states"]
     actions = data["actions"]
     print(f"Loaded demos from {args.demos}")
-    print(f"  states: {states.shape}, actions: {actions.shape}")
+    print(f"  states (full): {states_full.shape}, actions: {actions.shape}")
+
+    # Optional state-channel mask (e.g., to drop target_pos so the
+    # policy must rely on estimator-sensitive dynamic channels).
+    excluded = tuple(cfg.get("excluded_state_fields", []))
+    if excluded:
+        # myoArm reach state layout (qpos=20, qvel=20, act=34) matches
+        # the forward model's training schema; hardcode here rather
+        # than persisting per-demo. If the demo state dim differs from
+        # 83, fail fast.
+        if states_full.shape[1] != 83:
+            raise SystemExit(
+                f"excluded_state_fields requires state_dim=83 demos, "
+                f"got {states_full.shape[1]}"
+            )
+        spec = StateSpec(qpos_dim=20, qvel_dim=20, act_dim=34)
+        kept = state_feature_indices(spec, excluded_fields=excluded)
+        states = states_full[:, kept]
+        print(f"  excluded_state_fields: {excluded}")
+        print(f"  states (after mask): {states.shape} (kept indices saved)")
+    else:
+        kept = np.arange(states_full.shape[1], dtype=np.int64)
+        states = states_full
 
     train_cfg_raw = dict(cfg.get("train", {}))
     train_cfg_raw["seed"] = int(cfg.get("seed", 0))
@@ -75,6 +99,9 @@ def main(argv: list[str] | None = None) -> Path:
             "state_dim": int(states.shape[1]),
             "action_dim": int(actions.shape[1]),
             "hidden_dims": list(hidden_dims),
+            "excluded_state_fields": list(excluded),
+            "state_feature_indices": kept.tolist(),
+            "full_state_dim": int(states_full.shape[1]),
         },
         "train": asdict(train_config),
         "raw_config": cfg,

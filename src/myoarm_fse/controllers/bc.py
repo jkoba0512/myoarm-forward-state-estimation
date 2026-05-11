@@ -20,11 +20,36 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from myoarm_fse.envs.state import MyoArmState
+from myoarm_fse.envs.state import MyoArmState, StateSpec
 
 _DTYPE: np.dtype = np.dtype(np.float32)
 _LO: float = 0.0
 _HI: float = 1.0
+
+
+def state_feature_indices(
+    state_spec: StateSpec,
+    excluded_fields: tuple[str, ...] = (),
+) -> np.ndarray:
+    """Indices of flat state channels to keep after excluding ``excluded_fields``.
+
+    Returns a 1-D ``np.int64`` array. Empty ``excluded_fields`` returns
+    ``range(state_spec.dim)`` (= identity selection). Unknown field
+    names raise ``ValueError``.
+    """
+    layout = state_spec.layout()
+    unknown = set(excluded_fields) - set(layout.keys())
+    if unknown:
+        raise ValueError(
+            f"unknown excluded_fields: {sorted(unknown)}; "
+            f"valid: {sorted(layout.keys())}"
+        )
+    excluded_idx: set[int] = set()
+    for name in excluded_fields:
+        slc = layout[name]
+        excluded_idx.update(range(slc.start, slc.stop))
+    keep = [i for i in range(state_spec.dim) if i not in excluded_idx]
+    return np.asarray(keep, dtype=np.int64)
 
 
 # --- model ---
@@ -241,9 +266,21 @@ def load_bc_policy(
 
 
 class BCController:
-    """Wraps a trained ``BCPolicy`` into a closed-loop ``Controller``."""
+    """Wraps a trained ``BCPolicy`` into a closed-loop ``Controller``.
 
-    def __init__(self, policy: BCPolicy, action_dim: int) -> None:
+    Optional ``state_feature_indices`` lets the controller train and
+    serve a policy on a *subset* of the flat state vector — typically
+    used to drop fields like ``target_pos`` so the policy must rely on
+    estimator-sensitive dynamic state.
+    """
+
+    def __init__(
+        self,
+        policy: BCPolicy,
+        action_dim: int,
+        *,
+        state_feature_indices: np.ndarray | None = None,
+    ) -> None:
         if not isinstance(policy, BCPolicy):
             raise TypeError(
                 f"policy must be BCPolicy, got {type(policy).__name__}"
@@ -255,10 +292,29 @@ class BCController:
         self._policy = policy
         self._policy.eval()
         self._action_dim = int(action_dim)
+        if state_feature_indices is None:
+            self._mask: np.ndarray | None = None
+        else:
+            idx_arr = np.asarray(state_feature_indices, dtype=np.int64)
+            if idx_arr.ndim != 1:
+                raise ValueError(
+                    f"state_feature_indices must be 1-D, got shape "
+                    f"{idx_arr.shape}"
+                )
+            if idx_arr.shape[0] != policy.state_dim:
+                raise ValueError(
+                    f"len(state_feature_indices)={idx_arr.shape[0]} != "
+                    f"policy.state_dim={policy.state_dim}"
+                )
+            self._mask = idx_arr
 
     @property
     def action_dim(self) -> int:
         return self._action_dim
+
+    @property
+    def state_feature_indices(self) -> np.ndarray | None:
+        return None if self._mask is None else self._mask.copy()
 
     def reset(self, *, seed: int | None = None) -> None:
         del seed
@@ -269,12 +325,15 @@ class BCController:
                 f"observation must be MyoArmState, got {type(observation).__name__}"
             )
         x = observation.flatten().astype(np.float32)
+        if self._mask is not None:
+            x = x[self._mask]
         with torch.no_grad():
             u = self._policy(torch.from_numpy(x).unsqueeze(0)).squeeze(0).numpy()
         return np.clip(u, _LO, _HI).astype(_DTYPE, copy=False)
 
     def __repr__(self) -> str:
+        masked = "full" if self._mask is None else f"{self._mask.shape[0]}-d masked"
         return (
             f"BCController(action_dim={self._action_dim}, "
-            f"state_dim={self._policy.state_dim})"
+            f"policy_state_dim={self._policy.state_dim}, input={masked})"
         )

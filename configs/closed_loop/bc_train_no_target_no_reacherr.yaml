@@ -1,0 +1,26 @@
+# Phase 4 state-sensitive BC v2: exclude BOTH target_pos and reach_err
+# from BC input. Earlier v1 (target_pos only) left reach_err = tip_pos
+# - target_pos in the state, so the policy could still recover target.
+# v2 forces the policy to rely on proprioception + tip_pos alone, which
+# are estimator-sensitive but contain no explicit target signal.
+#
+# Expected: reaching weakens (no target reference) but the estimator
+# input now matters more.
+
+seed: 0
+
+architecture:
+  hidden_dims: [256, 256]
+
+excluded_state_fields: [target_pos, reach_err]
+
+train:
+  optimizer: adam
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  batch_size: 256
+  epochs: 100
+  val_fraction: 0.1
+
+output:
+  output_root: runs/bc_policies

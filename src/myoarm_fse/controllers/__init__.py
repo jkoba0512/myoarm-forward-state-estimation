@@ -10,6 +10,7 @@ from myoarm_fse.controllers.bc import (
     load_bc_policy,
     make_bc_model_id,
     save_bc_policy,
+    state_feature_indices,
     train_bc_policy,
 )
 from myoarm_fse.controllers.heuristic_reach import HeuristicReachController
@@ -32,6 +33,7 @@ __all__ = [
     "make_bc_model_id",
     "make_controller",
     "save_bc_policy",
+    "state_feature_indices",
     "train_bc_policy",
 ]
 

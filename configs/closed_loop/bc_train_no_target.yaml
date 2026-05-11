@@ -1,0 +1,29 @@
+# Phase 4 state-sensitive BC: drop target_pos (env-fixed channel) from
+# BC input so the policy must rely on dynamic state (qpos / qvel / act /
+# tip_pos / reach_err) — i.e. on estimator output.
+#
+# Run with:
+#   uv run python scripts/train_bc.py \
+#       --config configs/closed_loop/bc_train_no_target.yaml \
+#       --demos runs/bc_demos/{...}/demos.npz
+
+seed: 0
+
+architecture:
+  hidden_dims: [256, 256]
+
+# State channels to remove from BC input. target_pos is the env-fixed
+# 3-dim channel — without it the policy can't shortcut to the target
+# and must integrate estimator-sensitive dynamic state.
+excluded_state_fields: [target_pos]
+
+train:
+  optimizer: adam
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  batch_size: 256
+  epochs: 100
+  val_fraction: 0.1
+
+output:
+  output_root: runs/bc_policies

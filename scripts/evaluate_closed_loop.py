@@ -198,6 +198,7 @@ def main(argv: list[str] | None = None) -> Path:
         estimators = list(cfg["estimators"])
         controller_spec = dict(cfg["controller"])
         bc_policy_cache = None
+        bc_state_mask: np.ndarray | None = None
         if controller_spec.get("name") == "bc":
             bc_path = controller_spec.get("bc_policy_path")
             if not bc_path:
@@ -205,9 +206,26 @@ def main(argv: list[str] | None = None) -> Path:
                     "controller.bc_policy_path required for name='bc'"
                 )
             bc_policy_cache, bc_config, _bc_metrics = load_bc_policy(bc_path)
+            mask_list = bc_config.get("architecture", {}).get(
+                "state_feature_indices"
+            )
+            if mask_list is not None:
+                mask_arr = np.asarray(mask_list, dtype=np.int64)
+                if mask_arr.shape[0] != bc_policy_cache.state_dim:
+                    raise SystemExit(
+                        f"BC config state_feature_indices length "
+                        f"{mask_arr.shape[0]} != policy.state_dim "
+                        f"{bc_policy_cache.state_dim}"
+                    )
+                # Treat identity mask as None for cleaner logging.
+                if mask_arr.shape[0] != bc_config.get(
+                    "architecture", {}
+                ).get("full_state_dim", state_dim):
+                    bc_state_mask = mask_arr
             print(f"  loaded BC policy: {bc_path}  "
                   f"(state_dim={bc_policy_cache.state_dim}, "
-                  f"action_dim={bc_policy_cache.action_dim})")
+                  f"action_dim={bc_policy_cache.action_dim}, "
+                  f"mask={'yes' if bc_state_mask is not None else 'no'})")
         sdn_sigma_cfg = float(cfg.get("sdn", {}).get("sigma", 0.0))
         success_thresholds = tuple(
             float(t) for t in cfg.get("success_thresholds", (0.05,))
@@ -312,11 +330,10 @@ def main(argv: list[str] | None = None) -> Path:
                         target_pos = target_set.target_pos[ep_idx]
 
                         if controller_spec.get("name") == "bc":
-                            # Pre-loaded BC policy (loaded once outside loop;
-                            # we just wrap it per episode for protocol clarity).
                             bc_policy = bc_policy_cache
                             controller = BCController(
                                 policy=bc_policy, action_dim=action_dim,
+                                state_feature_indices=bc_state_mask,
                             )
                             controller.reset(seed=controller_seed)
                             ik_info = None
