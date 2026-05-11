@@ -45,6 +45,7 @@ STRESS_EVAL = "runs/learned_gain_evals/2026-05-10T12-59-43Z/comparison.csv"
 D_MVP = "runs/closed_loop/2026-05-11T07-08-39Z/metrics.csv"            # OLD baseline D MVP
 D_MVP_PHASE_B = "runs/closed_loop/2026-05-11T10-43-45Z/metrics.csv"    # K=4 D MVP
 D_MVP_PHASE_BPRIME = "runs/closed_loop/2026-05-11T12-37-26Z/metrics.csv"  # K=8 D MVP
+D_MVP_PHASE_C = "runs/closed_loop/2026-05-11T14-04-34Z/metrics.csv"    # K=8 + closed-loop oracle Stage A
 E_MVP = "runs/closed_loop/2026-05-11T06-15-10Z/metrics.csv"
 BC_FULL = "runs/closed_loop/2026-05-11T08-16-43Z/metrics.csv"
 BC_V1 = "runs/closed_loop/2026-05-11T08-32-19Z/metrics.csv"
@@ -516,13 +517,15 @@ def fig_F7_paradigm_shift() -> None:
     old = _by_cell(D_MVP)
     k4 = _by_cell(D_MVP_PHASE_B)
     k8 = _by_cell(D_MVP_PHASE_BPRIME)
+    k8_c = _by_cell(D_MVP_PHASE_C)
 
     # Save tidy summary.
     rows = []
     for (n, d) in cells:
         for source, data in (("OLD_single-step", old),
                              ("K4_multi-step", k4),
-                             ("K8_multi-step", k8)):
+                             ("K8_multi-step", k8),
+                             ("K8_closed-loop-oracle", k8_c)):
             for est in ("K=0.0", "K=1.0", "learned"):
                 mu, sd = data[(n, d)].get(est, (float("nan"), float("nan")))
                 rows.append({"forward_model": source, "noise": n,
@@ -536,13 +539,15 @@ def fig_F7_paradigm_shift() -> None:
     palette = {"K=0.0": COLORS["K=0.0"], "K=1.0": COLORS["K=1.0"],
                "learned": COLORS["learned"]}
 
-    fig, axes = plt.subplots(3, 1, figsize=(7.5, 7.4), sharex=True, sharey=True)
+    fig, axes = plt.subplots(4, 1, figsize=(7.5, 9.4), sharex=True, sharey=True)
     width = 0.26
     x = np.arange(len(cells))
     for ax, data, title in (
-        (axes[0], old, "Single-step forward model (Phase 3.1 / 3.3-min)"),
-        (axes[1], k4, "K=4 multi-step forward model (Phase B)"),
-        (axes[2], k8, "K=8 multi-step forward model (Phase B')"),
+        (axes[0], old, "(1) Single-step forward model (Phase 3.1 / 3.3-min)"),
+        (axes[1], k4, "(2) K=4 multi-step forward model (Phase B)"),
+        (axes[2], k8, "(3) K=8 multi-step forward model (Phase B')"),
+        (axes[3], k8_c,
+         "(4) K=8 forward model + Stage A on closed-loop oracle (Phase C)"),
     ):
         for j, est in enumerate(estimator_order):
             means = [data[c].get(est, (np.nan, np.nan))[0] for c in cells]
