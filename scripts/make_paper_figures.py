@@ -37,9 +37,12 @@ FIG_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # Locked input paths.
-STRESS_ORACLE = "runs/estimators/2026-05-10T11-01-23Z/best_by_condition.csv"
+STRESS_ORACLE_OLD = "runs/estimators/2026-05-10T11-01-23Z/best_by_condition.csv"
+STRESS_ORACLE_NEW = "runs/estimators/2026-05-11T09-53-59Z/best_by_condition.csv"
+STRESS_ORACLE = STRESS_ORACLE_OLD  # back-compat alias used in some helpers
 STRESS_EVAL = "runs/learned_gain_evals/2026-05-10T12-59-43Z/comparison.csv"
-D_MVP = "runs/closed_loop/2026-05-11T07-08-39Z/metrics.csv"
+D_MVP = "runs/closed_loop/2026-05-11T07-08-39Z/metrics.csv"          # OLD baseline D MVP
+D_MVP_PHASE_B = "runs/closed_loop/2026-05-11T10-43-45Z/metrics.csv"  # NEW K=4 D MVP
 E_MVP = "runs/closed_loop/2026-05-11T06-15-10Z/metrics.csv"
 BC_FULL = "runs/closed_loop/2026-05-11T08-16-43Z/metrics.csv"
 BC_V1 = "runs/closed_loop/2026-05-11T08-32-19Z/metrics.csv"
@@ -133,35 +136,47 @@ def fig_F1_system_overview() -> None:
 # ---------------- F2: Stress oracle K heatmap ----------------
 
 
-def fig_F2_stress_oracle() -> None:
-    df = pd.read_csv(STRESS_ORACLE)
+def _oracle_pivot(path: str) -> pd.DataFrame:
+    df = pd.read_csv(path)
     df["delay_steps"] = df["delay_steps"].astype(int)
     df["gain"] = df["gain"].astype(float)
-    pivot = (
+    return (
         df.groupby(["delay_steps", "noise_condition"])["gain"]
         .mean()
         .unstack("noise_condition")
         .reindex(index=DELAY_ORDER, columns=NOISE_ORDER)
     )
-    pivot.to_csv(DATA_DIR / "F2_stress_oracle_K.csv")
 
-    fig, ax = plt.subplots(figsize=(5.0, 3.0))
-    im = ax.imshow(pivot.values, cmap="viridis_r", vmin=0.0, vmax=1.0,
-                   aspect="auto")
-    ax.set_xticks(range(len(NOISE_ORDER)))
-    ax.set_xticklabels(NOISE_ORDER)
-    ax.set_yticks(range(len(DELAY_ORDER)))
-    ax.set_yticklabels(DELAY_ORDER)
-    ax.set_xlabel("Observation noise level")
-    ax.set_ylabel("Observation delay (steps)")
-    ax.set_title("Oracle Kalman gain K* (mean over 3 controllers)")
-    # Annotate cells
-    for i, d in enumerate(DELAY_ORDER):
-        for j, n in enumerate(NOISE_ORDER):
-            v = pivot.iloc[i, j]
-            ax.text(j, i, f"{v:.2f}", ha="center", va="center",
-                    color="white" if v > 0.5 else "black", fontsize=8)
-    fig.colorbar(im, ax=ax, label="K*")
+
+def fig_F2_stress_oracle() -> None:
+    """F2: OLD (single-step) vs NEW (K=4 multi-step) oracle K heatmaps."""
+    old = _oracle_pivot(STRESS_ORACLE_OLD)
+    new = _oracle_pivot(STRESS_ORACLE_NEW)
+    old.to_csv(DATA_DIR / "F2_stress_oracle_K_old.csv")
+    new.to_csv(DATA_DIR / "F2_stress_oracle_K_new.csv")
+
+    fig, axes = plt.subplots(1, 2, figsize=(9.0, 3.2), sharey=True)
+    for ax, pivot, title in (
+        (axes[0], old, "Single-step forward model"),
+        (axes[1], new, "K=4 multi-step forward model"),
+    ):
+        im = ax.imshow(pivot.values, cmap="viridis_r", vmin=0.0, vmax=1.0,
+                       aspect="auto")
+        ax.set_xticks(range(len(NOISE_ORDER)))
+        ax.set_xticklabels(NOISE_ORDER, rotation=20, ha="right")
+        ax.set_yticks(range(len(DELAY_ORDER)))
+        ax.set_yticklabels(DELAY_ORDER)
+        ax.set_xlabel("Observation noise level")
+        ax.set_title(title)
+        for i, _d in enumerate(DELAY_ORDER):
+            for j, _n in enumerate(NOISE_ORDER):
+                v = pivot.iloc[i, j]
+                ax.text(j, i, f"{v:.2f}", ha="center", va="center",
+                        color="white" if v > 0.55 else "black", fontsize=8)
+    axes[0].set_ylabel("Observation delay (steps)")
+    fig.colorbar(im, ax=axes, label="Oracle K*", shrink=0.85, pad=0.02)
+    fig.suptitle("Oracle Kalman gain across the stress grid", y=1.04,
+                 fontsize=10)
     _save(fig, "F2_stress_oracle_K")
 
 
@@ -463,6 +478,85 @@ def fig_F5_phase2_d_trajectories() -> None:
     _save(fig, "F5_phase2d_trajectory")
 
 
+# ---------------- F7: Phase B closed-loop paradigm shift ----------------
+
+
+def fig_F7_paradigm_shift() -> None:
+    """F7: 2-panel bar chart per cell (3 estimators × min_tip) for OLD vs NEW.
+
+    Highlights the closed-loop paradigm shift: with single-step forward
+    model learned ≈ K=1 and K=0 diverges; with K=4 multi-step supervision
+    K=0 becomes the best estimator across all 6 cells.
+    """
+    cells = [(n, d) for n in ("none", "high", "xhigh") for d in (0, 18)]
+    cell_labels = [f"{n}\nd={d}" for n, d in cells]
+
+    def _by_cell(path: str) -> dict[tuple[str, int], dict[str, tuple[float, float]]]:
+        df = pd.read_csv(path)
+        df["delay_steps"] = df["delay_steps"].astype(int)
+        df["min_tip_error"] = df["min_tip_error"].astype(float)
+        df["estimator_norm"] = df["estimator"].apply(
+            lambda s: "learned" if s.startswith("learned") else s
+        )
+        out: dict[tuple[str, int], dict[str, tuple[float, float]]] = {}
+        for (est, n, d), grp in df.groupby(
+            ["estimator_norm", "noise_condition", "delay_steps"]
+        ):
+            vals = grp["min_tip_error"].to_numpy()
+            out.setdefault((n, d), {})[est] = (float(vals.mean()),
+                                                float(vals.std()))
+        return out
+
+    old = _by_cell(D_MVP)
+    new = _by_cell(D_MVP_PHASE_B)
+
+    # Save tidy summary.
+    rows = []
+    for (n, d) in cells:
+        for source, data in (("OLD_single-step", old),
+                             ("NEW_K4_multi-step", new)):
+            for est in ("K=0.0", "K=1.0", "learned"):
+                mu, sd = data[(n, d)].get(est, (float("nan"), float("nan")))
+                rows.append({"forward_model": source, "noise": n,
+                             "delay": d, "estimator": est,
+                             "min_tip_mean": mu, "min_tip_std": sd})
+    pd.DataFrame(rows).to_csv(
+        DATA_DIR / "F7_paradigm_shift_min_tip.csv", index=False,
+    )
+
+    estimator_order = ("K=0.0", "K=1.0", "learned")
+    palette = {"K=0.0": COLORS["K=0.0"], "K=1.0": COLORS["K=1.0"],
+               "learned": COLORS["learned"]}
+
+    fig, axes = plt.subplots(2, 1, figsize=(7.5, 5.4), sharex=True, sharey=True)
+    width = 0.26
+    x = np.arange(len(cells))
+    for ax, data, title in (
+        (axes[0], old, "Single-step forward model (Phase 3.1 / 3.3-min)"),
+        (axes[1], new, "K=4 multi-step forward model (Phase B)"),
+    ):
+        for j, est in enumerate(estimator_order):
+            means = [data[c].get(est, (np.nan, np.nan))[0] for c in cells]
+            stds = [data[c].get(est, (np.nan, np.nan))[1] for c in cells]
+            ax.bar(x + (j - 1) * width, means, width, yerr=stds,
+                   capsize=2, label=est, color=palette[est],
+                   edgecolor="black", linewidth=0.4)
+        ax.set_ylabel("min tip-to-target error (m)")
+        ax.set_title(title)
+        ax.grid(axis="y", alpha=0.3)
+        ax.set_ylim(0, 1.0)
+        ax.axhline(0.05, color="red", linestyle="--", linewidth=0.6,
+                   alpha=0.4, label="_success_thr_5cm")
+    axes[1].set_xticks(x)
+    axes[1].set_xticklabels(cell_labels)
+    axes[1].set_xlabel("noise condition × delay")
+    axes[0].legend(loc="upper right", frameon=False)
+    fig.suptitle("Closed-loop reaching: forward-model supervision changes "
+                 "the optimal estimator",
+                 fontsize=10, y=1.0)
+    _save(fig, "F7_paradigm_shift")
+
+
 # ---------------- F6: Phase 4 BC trade-off scatter ----------------
 
 
@@ -554,6 +648,8 @@ def main() -> None:
     fig_F5_phase2_d_trajectories()
     print("F6 controller trade-off scatter ...")
     fig_F6_tradeoff()
+    print("F7 Phase B paradigm shift ...")
+    fig_F7_paradigm_shift()
     print("\nAll figures saved to figures/ and tidied CSVs to figures/data/")
 
 

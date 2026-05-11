@@ -4,19 +4,22 @@
 構成を **固定** するためのものです。実装中の判断ノートとは別に、論文側の
 不可逆な決定 (主張、結論、figure caption) を locked-in 状態で保持します。
 
-## 中心メッセージ
+## 中心メッセージ (v2、Phase B 反映後)
 
-> **Estimator quality propagates to closed-loop reaching performance, but only under specific conditions: a state-coupled controller (joint-space PD with IK precompute) AND an observation-delay regime (≥18 steps). Behaviour-cloned controllers at modest demonstration scale improve reaching but collapse to an effectively open-loop policy, washing out the estimator signal.**
+> **Closed-loop reaching benefits from forward-model based state estimation, but the optimal estimator structure is bounded by forward-model accuracy. With a single-step-supervised model, a learned condition-level Kalman gain beats observation-only by 8.6 cm in the (low noise, large delay) regime. With multi-step-supervised model accurate enough to roll out over the relevant horizons, the prediction-only estimator (K=0) becomes globally optimal in closed-loop reaching, widening the gap to observation-only to 12-24 cm — a paradigm shift from "blend prediction with observation" to "trust the model".**
 
 研究問い (Project 1):
 > myoArm reaching において、forward prediction と Kalman-like state estimator は、
 > sensory delay・observation noise・signal-dependent motor noise 下の制御を改善するか。
 
-答え:
-- **改善する条件**: state-coupled controller + observation-delay regime
-- **改善が消える条件**: behaviour-cloned policy が per-target generalize しないとき (small demo scale)
+答え (二段で構成):
+- **Yes, with caveats**: estimator quality propagates to closed-loop, but the regime depends on:
+  - state-coupled controller (joint-PD + IK; BC washes out the signal)
+  - forward-model accuracy (single-step → blending matters; multi-step → prediction alone wins)
+- **改善が消える条件**: behaviour-cloned policy が per-target generalize しない (small demo scale)
+- **paradigm shift**: long-horizon forward-model supervision shifts the closed-loop optimum from blending (K∈(0,1)) to pure prediction (K=0)
 
-## 主結果 3 つ
+## 主結果 4 つ (R1-R3 + 新 R5)
 
 ### R1. Stress eval が blending regime を再現する
 
@@ -36,7 +39,7 @@ stress oracle (72 conditions、5 K) で学習した小さい MLP (8-dim 入力 �
 (delay=0, xhigh) で learned 0.0343 m vs K=1.0 0.0635 m vs oracle 0.0298 m。state-aware Stage B
 は同等条件で更なる改善を出せず (negative result、controller-engineering implication)。
 
-### R3. closed-loop で estimator quality が伝播する条件
+### R3. closed-loop で estimator quality が伝播する条件 (with single-step forward model)
 
 5 つの controller variant で同じ 180-rollout grid を評価:
 
@@ -51,6 +54,36 @@ stress oracle (72 conditions、5 K) で学習した小さい MLP (8-dim 入力 �
 **joint-space PD + IK が唯一 state-coupled かつ delay regime で機能** → +8.6 cm の learned vs K=1 差を観測。
 BC variants は reaching を改善するが open-loop 化して estimator signal が wash out。
 
+**Caveat (新 R5 で展開)**: この結果は single-step-supervised forward model に依存。multi-step supervision で精度向上した forward model では別の estimator (K=0) が最適化される。
+
+### R5. Long-horizon forward-model supervision shifts the closed-loop paradigm (新)
+
+K=4 multi-step rollout loss で forward model を再訓練:
+
+- **Open-loop**: h=50 tip prediction error が **0.138 m → 0.064 m (-54%)**、h=10 -30%
+- **Open-loop stress oracle**: K<1 が必要な cell が 18 → **26 / 72 (25% → 36%)**。delay=6/18/36 にも blending 領域が出現
+
+```
+NEW oracle K (delay × noise mean):
+delay\noise   none  low  med  high  vhigh  xhigh
+  d= 0       1.00  0.83 0.58  0.50  0.33   0.25
+  d= 6       1.00  1.00 1.00  0.92  0.67   0.42
+  d=18       1.00  1.00 1.00  1.00  0.92   0.75  ← 新規
+  d=36       1.00  1.00 1.00  1.00  1.00   0.92  ← 新規
+```
+
+- **Closed-loop (Phase 2 D MVP 再走)**: 期待に反して、**K=0 (prediction-only) が全 6 cell で best** (min_tip ~0.53 m vs K=1 0.66-0.77 m、Δ -12 ~ -24 cm)。R3 の (noise=none, delay=18) で観測されていた learned vs K=1 の +8.6 cm signal は消失 (Δ -0.5 cm)。
+- **解釈**: forward model が十分強い領域では、観測ノイズ補正 (blending) より prediction trust の方が制御に有利。open-loop estimation accuracy 最適 K と closed-loop task 性能最適 K が乖離する現象。stress oracle で訓練された learned predictor は依然 K≈1 を出力するが、closed-loop 真の最適 K=0 を捕捉できない。
+
+```
+Closed-loop min_tip (NEW Phase B, mean over 10 eps):
+cell           K=0     K=1     learned
+none, d= 0    0.530   0.770    0.779
+none, d=18    0.531   0.656    0.660
+xhigh, d= 0   0.530   0.762    0.761
+xhigh, d=18   0.531   0.653    0.665
+```
+
 ## 図表構成
 
 ### F1: System overview (block diagram)
@@ -64,16 +97,19 @@ maintains a state prediction; the Kalman-like estimator combines it with delayed
 via gain K; the controller (joint-space PD or behaviour-cloned) consumes the estimated state.
 ``true_state`` is used only for evaluation (oracle), never inside the closed loop."
 
-### F2: Stress oracle K heatmap (delay × noise)
+### F2: Stress oracle K heatmap (delay × noise) — OLD vs NEW
 
-Phase 3.2 stress sweep の best_by_condition.csv から、(delay, noise) 平均 oracle K を heatmap で示す。
-delay=0 で右下 (xhigh) に向けて 1.0 → 0.25 への gradient、delay≥18 で全 cell が 1.0 になる構造を可視化。
+2-panel: 上段が OLD baseline (single-step forward model)、下段が NEW K=4 (multi-step supervision)。
+NEW では delay=6/18/36 にも blending 領域が出現することを直接比較。
 
 **Caption**:
-"Oracle Kalman gain as a function of observation delay and noise level (mean over 3 controllers,
-72 cells total). At zero delay the optimal K decreases monotonically from 1.0 (no noise) to 0.25
-(xhigh noise). At delay ≥ 18 steps, the optimal K is uniformly 1.0 — forward-model rollout
-error compounds faster than observation noise grows, making blending ineffective."
+"Oracle Kalman gain as a function of observation delay and noise level (mean over 3 controllers).
+**Top**: single-step-supervised forward model. At zero delay the optimal K decreases monotonically from
+1.0 (no noise) to 0.25 (xhigh noise). At delay ≥ 18 steps, the optimal K is uniformly 1.0 — forward-
+model rollout error compounds faster than observation noise grows.
+**Bottom**: with K=4 multi-step rollout supervision, the K<1 regime widens significantly: blending now
+beats observation-only at (delay=6, high-xhigh), (delay=18, vhigh-xhigh), and (delay=36, xhigh) —
+previously all uniformly K=1. 18 -> 26 of 72 cells require K<1."
 
 ### F3: 7-strategy stress eval comparison
 
@@ -109,6 +145,21 @@ time-series で 3 estimator (K=0, K=1, learned) plot。K=0 は発散、K=1 と l
 (K=1) approaches the target but stays ~0.74 m away; the learned condition-level estimator
 (K_inferred ≈ 0.92) reaches 0.66 m, a 8.6 cm improvement."
 
+### F7: Phase B closed-loop paradigm shift (新)
+
+3-bar groups per cell (6 cells × 3 estimators × min_tip mean ± std)。OLD baseline と NEW K=4 を 2-panel
+で並べる。NEW で K=0 (オレンジ) が全 cell で K=1 / learned より低位置に落ち、paradigm shift を視覚化。
+
+**Caption**:
+"Closed-loop reaching min-tip-to-target error under joint-PD + IK controller (mean ± std over 10 eps).
+**Top**: with single-step-supervised forward model, K=0 (prediction-only) diverges in long-delay cells
+(min_tip 0.55-0.61 m), and learned ≈ K=1 in most cells. The +8.6 cm learned-vs-K=1 advantage at
+(noise=none, delay=18, see F4) is the only clear estimator differentiation signal.
+**Bottom**: with K=4 multi-step-supervised forward model, **K=0 becomes the best estimator in all six
+cells** (min_tip ~0.53 m, 12-24 cm below K=1). The closed-loop paradigm shifts from blending to
+prediction-trusting; the open-loop stress-oracle K (Stage A trained on it) no longer matches the
+closed-loop task optimum."
+
 ### F6: Phase 4 BC trade-off scatter
 
 5 controller variants を 2D scatter: x軸 = reaching success_010 (over 6 cells × estimators 平均)、
@@ -132,19 +183,30 @@ in the D regime."
 
 3.2 Where blending matters (Stress eval, F2 + F3)
     - Phase 3.2 stress: oracle K varies 1.0 → 0.25 in (low delay + high noise)
-    - delay ≥ 18 forces K=1 due to forward-model rollout limit
+    - delay ≥ 18 forces K=1 due to forward-model rollout limit (with single-step supervision)
     - Stage A retrained recovers most of the oracle gain
 
 3.3 Closed-loop effect of estimator quality (F4 + F5)
     - Phase 2 D: joint-space PD + IK + moment-arm muscle mapping
     - +8.6 cm at (noise=none, delay=18); other cells <2 cm
     - learned beats K=1 most in observation-delay-dominated regime
+    - All results contingent on the single-step-supervised forward model (→ 3.5)
 
 3.4 Open-loop collapse of behaviour-cloned controllers (F6)
     - Phase 4 BC: ScriptedReach demos + MLP policy
     - Reaching improves (S010 0% → 10-30%) but Δ(L−K1) shrinks by 10×
     - State-sensitivity ablation: removing target_pos / reach_err from BC
       input does not restore differentiation → policy is open-loop in target
+
+3.5 Long-horizon forward-model supervision shifts the paradigm (F2 bottom + F7)
+    - K=4 multi-step rollout loss: h=50 tip_err 0.138 → 0.064 m (-54%)
+    - Open-loop stress oracle: K<1 regime widens 25% → 36% of cells,
+      blending now optimal at delay≥6 in high-noise cells
+    - Closed-loop: K=0 (prediction-only) becomes the best estimator in
+      all 6 cells (min_tip ~0.53 m vs K=1 0.66-0.77 m, Δ -12 to -24 cm)
+    - Stage A trained on the open-loop oracle no longer matches closed-loop optimum
+    - Paradigm shift: blending → prediction-trusting as the forward model
+      becomes sufficient to roll out over the controller's planning horizon
 ```
 
 ## Discussion セクション主要点
@@ -156,17 +218,28 @@ in the D regime."
 2. **Why BC collapses**: small-scale demos (30 episodes / 30 targets) don't
    constrain the policy to use target features. Future work: target-conditioned
    policy, DAgger, larger demos.
-3. **Structural limit of forward-model rollout**: delay ≥ 6 makes K=1 optimal.
-   Long-horizon supervision could relax this and widen the K<1 regime in
-   future work (Phase B per the implementation plan).
-4. **The 8.6 cm signal**: small in absolute terms (vs ~70 cm reach distance)
-   but distinguishable from intra-estimator noise and structurally located in
-   the regime the theory predicts (delay-dominated, low-noise).
+3. **The 8.6 cm signal is regime-bound**: small in absolute terms (vs ~70 cm
+   reach distance) but distinguishable from intra-estimator noise and
+   structurally located where the theory predicts (delay-dominated, low-noise)
+   — **as long as the forward model is single-step-supervised**.
+4. **Paradigm shift with long-horizon supervision (新)**: K=4 multi-step rollout
+   loss simultaneously widens the open-loop K<1 regime *and* drives the
+   closed-loop optimum to K=0. Open-loop estimation accuracy and closed-loop
+   task performance do not co-optimize the same Kalman gain — a structural
+   misalignment that the open-loop oracle hides.
+5. **Implication for adaptive gain estimators (新)**: Stage A trained on
+   open-loop oracle outputs K≈1 at delay≥6 even when closed-loop optimum is
+   K=0. Closed-loop-aware oracle definition (e.g. label by task tip-error
+   under K-sweep closed-loop rollouts) is the natural next step for matching
+   estimator design to the regime.
 
 ## Future work セクション
 
 ```
-- Forward model long-horizon supervision (Phase 3.2 structural fix)
+- Closed-loop-aware oracle for Stage A (label by task tip-error under
+  closed-loop K-sweep rather than open-loop estimation accuracy)
+- Even larger K in multi-step supervision (K=8, 16) to test whether the
+  paradigm shift saturates or continues
 - Large-scale demonstration collection + DAgger (Phase 4 BC scale-up)
 - Stage B redesign with per-episode K* labels or end-to-end gradient
 - Test on additional MyoSuite arm tasks beyond reach
@@ -182,9 +255,11 @@ in the D regime."
 ## 関連 artifacts (図のデータ source)
 
 ```
-runs/estimators/2026-05-10T11-01-23Z/best_by_condition.csv          # F2
+runs/estimators/2026-05-10T11-01-23Z/best_by_condition.csv          # F2 top (OLD)
+runs/estimators/2026-05-11T09-53-59Z/best_by_condition.csv          # F2 bottom (NEW K=4)
 runs/learned_gain_evals/2026-05-10T12-59-43Z/comparison.csv         # F3
-runs/closed_loop/2026-05-11T07-08-39Z/metrics.csv                   # F4, F5
+runs/closed_loop/2026-05-11T07-08-39Z/metrics.csv                   # F4, F5, F7 top (OLD D MVP)
+runs/closed_loop/2026-05-11T10-43-45Z/metrics.csv                   # F7 bottom (Phase B D MVP)
 runs/closed_loop/2026-05-11T06-15-10Z/metrics.csv                   # F6 (E)
 runs/closed_loop/2026-05-11T07-08-39Z/metrics.csv                   # F6 (D)
 runs/closed_loop/2026-05-11T08-16-43Z/metrics.csv                   # F6 (BC full)
