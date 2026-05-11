@@ -12,6 +12,10 @@ from myoarm_fse.estimators.learned import (
     GainPredictor,
     LearnedGainKalmanEstimator,
     LearnedGainTrainConfig,
+    StateAwareGainPredictor,
+    StateAwareLearnedGainKalmanEstimator,
+    StateAwareTrainConfig,
+    train_state_aware_gain_predictor,
     load_learned_gain_model,
     load_oracle_table,
     make_learned_gain_model_id,
@@ -37,4 +41,9 @@ __all__ = [
     "make_learned_gain_model_id",
     "save_learned_gain_model",
     "train_gain_predictor",
+    # learned-gain (Stage B: state-aware)
+    "StateAwareGainPredictor",
+    "StateAwareLearnedGainKalmanEstimator",
+    "StateAwareTrainConfig",
+    "train_state_aware_gain_predictor",
 ]

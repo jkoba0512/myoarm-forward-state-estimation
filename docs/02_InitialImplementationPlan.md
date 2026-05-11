@@ -2077,3 +2077,130 @@ C. Phase 2 (PD endpoint + closed-loop) — Stage B と直交、いつでも着�
 合理的順序は **A → B → C** だが、B は collection コストが大きいので、まず A で表現力を上げる方針。
 
 設計判断ノート / 報告書: `Logs/2026-05-10-myoarm-fse-phase32-stress-eval-completion-report.md`
+
+---
+
+### Phase 3.2 Stage B (state-aware gain) 完了報告 (2026-05-11)
+
+#### 目的
+
+Stage A retrained は (delay=0, xhigh) で oracle K=0.25 のところを K≈0.4 までしか落とせなかった。
+Stage B では per-step innovation を入力に追加し、condition 平均を超える動的 K 調整を試みる。
+
+#### 設計
+
+- **入力 12 dim**: condition features 8 (Stage A 同等) + state features 4 (per-field innovation L2 norm)
+- **モデル**: `StateAwareGainPredictor` (8 + 4 → 64 → 64 → 1, ~5k params)
+- **estimator**: `StateAwareLearnedGainKalmanEstimator` — `FixedGainKalmanEstimator` の delay 処理を踏襲しつつ、毎 correction 時に innovation から K を再計算
+- **ラベル**: 84,204 per-step samples (3 runs × 6 noise × 4 delays × 2 episodes × ~600 steps)
+  - delay=0: closed-form K\* = `(innovation·err_pred) / ||innovation||²`、ideal prior (x_pred = x_true[t-1] + f(x_true[t-1], u[t-1]))
+  - delay>0: K\* = 1.0 を直接ラベル (stress sweep で oracle K=1.0 確認済み、recursive K-sweep の代替)
+- **CV**: stratified by condition (72) / noise (6) / delay (4) / controller (3)
+
+新規ファイル:
+```
+src/myoarm_fse/estimators/learned.py            # +StateAwareGainPredictor, StateAwareLearnedGainKalmanEstimator, StateAwareTrainConfig, train_state_aware_gain_predictor
+scripts/generate_per_step_oracle.py             # per-step K* + features 生成
+scripts/train_stage_b.py                        # Stage B 学習 CLI
+configs/estimators/learned_gain_stage_b.yaml    # train+gen 統一 config
+tests/test_state_aware_gain.py                  # 23 tests
+```
+
+eval 拡張: `scripts/evaluate_learned_gain.py` に `StateAwareGainPredictor` 判定 + per-step K 集約 (mean/std/min/max) を追加。`learned_k_std/min/max` カラムを `comparison.csv` に追記。
+
+#### 学習結果 (`runs/learned_gain_models/2026-05-11T00-34-24Z/`)
+
+CV abs_error of K_pred vs K\*:
+```
+condition   n_folds=72  mean=0.0273  median=0.0000  max=0.9113
+noise       n_folds= 6  mean=0.0253  median=0.0000  max=0.9447
+delay       n_folds= 4  mean=0.0934  median=0.0000  max=0.9934
+controller  n_folds= 3  mean=0.0483  median=0.0004  max=0.7526
+final on N=84204         mean=0.0169  max=0.4256
+```
+
+delay 軸の CV だけ高い (0.093) — delay=0 を hold out すると K\*=1 ばかり学んでしまうため、評価時 K=0.25 を出せない (max 0.99)。
+
+#### 評価 (`runs/learned_gain_evals/2026-05-11T00-35-37Z/`)
+
+vs Stage A retrained (`runs/learned_gain_evals/2026-05-10T12-59-43Z/`)、stress grid 72 conds:
+
+| strategy | A retrained mean | B mean | A max | B max |
+|---|---|---|---|---|
+| K=1.0 | 0.09049 | 0.09049 | 0.26776 | 0.26776 |
+| **learned** | **0.08899** | 0.08967 | **0.00586** | 0.03076 |
+| oracle | 0.08790 | 0.08790 | 0.26846 | 0.26846 |
+
+mean delta vs oracle (positive = oracle より悪い):
+- Stage A retrained: **+0.00109**
+- Stage B: +0.00177 (×1.6 worse)
+
+max delta vs oracle:
+- Stage A retrained: **+0.00586**
+- Stage B: +0.03076 (×5.2 worse)
+
+##### Focus: delay=0, high-noise (blending leverage 領域)
+
+| 条件 | oracle | K=1.0 | A learned | B learned |
+|---|---|---|---|---|
+| high, d=0 | 0.01134 | 0.01594 | **0.01188** | 0.01422 |
+| vhigh, d=0 | 0.01942 | 0.03157 | **0.02109** | 0.02687 |
+| xhigh, d=0 | 0.02978 | 0.06354 | **0.03428** | 0.05123 |
+
+**Stage B は Stage A 再学習版より worse**。期待と逆。
+
+#### K 使用解析
+
+delay>0 で **K=1.0 (std~0)**: per-step adaptation のスイッチ機能は完璧に動いている。
+
+delay=0 + high noise (controller 別 K 予測):
+
+| 条件 | oracle K | B mean K | B std K | B min | B max |
+|---|---|---|---|---|---|
+| random, high, 0 | 0.750 | 1.000 | 0.004 | 0.913 | 1.000 |
+| lowamp, high, 0 | 0.500 | 0.962 | 0.078 | 0.435 | 1.000 |
+| hold,   high, 0 | 0.500 | 0.489 | 0.149 | 0.179 | 1.000 |
+| random, vhigh, 0 | 0.500 | 0.998 | 0.016 | 0.743 | 1.000 |
+| lowamp, vhigh, 0 | 0.250 | 0.907 | 0.151 | 0.195 | 1.000 |
+| hold,   vhigh, 0 | 0.500 | 0.313 | 0.127 | 0.097 | 1.000 |
+| random, xhigh, 0 | 0.250 | 0.992 | 0.051 | 0.379 | 1.000 |
+| lowamp, xhigh, 0 | 0.250 | 0.828 | 0.246 | 0.083 | 1.000 |
+| hold,   xhigh, 0 | 0.250 | 0.218 | 0.138 | 0.060 | 1.000 |
+
+**controller 依存に過度バイアス**:
+- `hold` controller のみ oracle K に近い予測 (innovation が小さく、prediction を trust するため)
+- `random` controller では K≈1 (innovation が action 由来で大、observation を trust する誤学習)
+- `lowamp` controller は中間
+
+oracle K は controller に依存しないが、Stage B は controller × innovation 相関を過剰に学習。
+
+#### 診断と教訓
+
+1. **多数派バイアス**: 84k samples のうち 75% (delay>0) で K\*=1 ラベル → モデルは「innovation を無視して condition だけで K を出せ」と学習しがち。
+2. **closed-form K\* は per-step 不安定**: 単一の noisy observation realization から計算するため、ラベルが per-step で大きく揺れる。モデルは平均に regress、oracle K 付近を超えられない。
+3. **delay 軸 CV の max=0.99 が示唆**: 訓練時に delay=0 を見ていないと K=0.25 のような低 K は予測できない。逆に delay=0 を訓練に含めても、majority (delay>0, K=1) に引かれる。
+4. **per-step adaptation は機能している**: delay>0 で K=1 std=0、(hold, xhigh, 0) で K mean=0.22 を出せる → 仕組みは正しい。問題は学習信号の質。
+
+#### 想定される改善案 (今は実装しない)
+
+- A. **delay=0 samples のみで訓練** (21k → 全部 variable K\* signal)、推論時 delay>0 は K=1 直結 bypass。
+- B. **K\* ラベルを per-episode 集約** (single K per (cell, episode) instead of per-step) で per-step noise を消す。Stage A と Stage B の中間。
+- C. **innovation 特徴をエピソード sliding window 平均**にする (instantaneous noise を smoothing)。
+- D. **end-to-end 微分** (tip_err を直接最小化、K\* ラベル不要)。最も筋が良いが実装重い。
+
+#### 結論
+
+Stage B の **infrastructure (per-step state-aware K の予測+適用) は正しく動いている** が、**現状のラベル設計が controller-noise-delay の交互作用を素直に表現できていない**。stress grid で実用的に効くのは依然 Stage A retrained。
+
+Phase 3.2 全体としては「condition-level supervised が現実的な weight 設定」「state-dependent はラベル設計が要」という結論で一旦締める。次の方向:
+
+```text
+A. Phase 2 (PD endpoint + closed-loop integration) — gain blending 自体に固執せず、
+   閉ループでの実用性に焦点を移す。
+B. Phase 4 collection (target_set 全 330 episode) — 統計力 + variance 改善で
+   Stage B のラベル設計を見直せるなら見直す。
+C. forward model の long-horizon supervision — delay>0 で K<1 が有意になる条件を作る
+   (今は delay>=6 で K=1 が最適という構造に縛られている)。
+```
+
+設計判断ノート / 報告書: `Logs/2026-05-11-myoarm-fse-phase32-stage-b-completion-report.md`

@@ -45,7 +45,10 @@ from myoarm_fse.data.logger import RunIndex
 from myoarm_fse.envs.state import StateSpec
 from myoarm_fse.estimators import (
     FixedGainKalmanEstimator,
+    GainPredictor,
     LearnedGainKalmanEstimator,
+    StateAwareGainPredictor,
+    StateAwareLearnedGainKalmanEstimator,
     aggregate_estimation_metrics,
     evaluate_estimator_on_log,
     load_learned_gain_model,
@@ -235,6 +238,9 @@ _COMPARISON_COLUMNS: tuple[str, ...] = (
     "noise_condition",
     "delay_steps",
     "gain_used",
+    "learned_k_std",
+    "learned_k_min",
+    "learned_k_max",
     "tip_estimation_error_mean",
     "tip_estimation_error_final",
     "state_mse_mean",
@@ -413,18 +419,32 @@ def main(argv: list[str] | None = None) -> Path:
                     run_label = _short_run_label(run_path)
                     controller = run_to_controller.get(run_label, run_label)
                     if strategy == "learned":
-                        estimator = LearnedGainKalmanEstimator(
-                            forward_model=forward_model,
-                            gain_predictor=learned_predictor,
-                            state_spec=state_spec,
-                            delay_steps=int(delay),
-                            controller_name=controller,
-                            noise_sigma=noise_sigma,
-                            controller_names=controller_names,
-                            sigma_field_order=sigma_field_order,
-                            delay_max=delay_max,
-                        )
-                        gain_used = float(estimator.learned_k)
+                        if isinstance(learned_predictor, StateAwareGainPredictor):
+                            estimator = StateAwareLearnedGainKalmanEstimator(
+                                forward_model=forward_model,
+                                gain_predictor=learned_predictor,
+                                state_spec=state_spec,
+                                delay_steps=int(delay),
+                                controller_name=controller,
+                                noise_sigma=noise_sigma,
+                                controller_names=controller_names,
+                                sigma_field_order=sigma_field_order,
+                                delay_max=delay_max,
+                            )
+                            gain_used = float("nan")  # filled after eval
+                        else:
+                            estimator = LearnedGainKalmanEstimator(
+                                forward_model=forward_model,
+                                gain_predictor=learned_predictor,
+                                state_spec=state_spec,
+                                delay_steps=int(delay),
+                                controller_name=controller,
+                                noise_sigma=noise_sigma,
+                                controller_names=controller_names,
+                                sigma_field_order=sigma_field_order,
+                                delay_max=delay_max,
+                            )
+                            gain_used = float(estimator.learned_k)
                     else:
                         gain_value = _resolve_strategy_k(
                             strategy=strategy,
@@ -446,6 +466,7 @@ def main(argv: list[str] | None = None) -> Path:
                         gain_used = float(gain_value)
 
                     results = []
+                    state_aware_k_log: list[float] = []
                     for log in logs:
                         res = evaluate_estimator_on_log(
                             estimator, log,
@@ -456,9 +477,18 @@ def main(argv: list[str] | None = None) -> Path:
                             obs_compose=obs_compose,
                         )
                         results.append(res)
+                        if isinstance(estimator, StateAwareLearnedGainKalmanEstimator):
+                            state_aware_k_log.extend(estimator.k_history)
                     metrics = aggregate_estimation_metrics(
                         results, skip_cold_start=skip_cold_start,
                     )
+                    if state_aware_k_log:
+                        k_arr = np.asarray(state_aware_k_log, dtype=np.float64)
+                        gain_used = float(k_arr.mean())
+                        metrics["learned_k_mean"] = float(k_arr.mean())
+                        metrics["learned_k_std"] = float(k_arr.std())
+                        metrics["learned_k_min"] = float(k_arr.min())
+                        metrics["learned_k_max"] = float(k_arr.max())
 
                     setting_dir = (
                         per_setting_dir
@@ -493,6 +523,9 @@ def main(argv: list[str] | None = None) -> Path:
                         "noise_condition": noise_name,
                         "delay_steps": int(delay),
                         "gain_used": gain_used,
+                        "learned_k_std": metrics.get("learned_k_std", ""),
+                        "learned_k_min": metrics.get("learned_k_min", ""),
+                        "learned_k_max": metrics.get("learned_k_max", ""),
                         "tip_estimation_error_mean": metrics.get(
                             "tip_estimation_error_mean", float("nan")
                         ),

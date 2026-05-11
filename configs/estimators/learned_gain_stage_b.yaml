@@ -1,0 +1,84 @@
+# Phase 3.2 Stage B: state-aware (innovation-aware) gain predictor on
+# the stress grid (3 controllers x 6 noise x 4 delays = 72 conditions).
+#
+# Two CLIs read this single config:
+#
+#   1. scripts/generate_per_step_oracle.py  — produces per_step.npz
+#      with (cond_features, state_features, k_target) for every
+#      step in every (run, episode, noise, delay) cell.
+#   2. scripts/train_stage_b.py             — trains a
+#      StateAwareGainPredictor on the .npz with CV by condition /
+#      noise / delay / controller.
+#
+# Eval reuses scripts/evaluate_learned_gain.py because
+# load_learned_gain_model dispatches on architecture.kind.
+
+seed: 0
+
+forward_model: runs/models/2026-05-10T07-25-23Z
+
+# Same three baseline runs we used for Stage A and the stress sweep.
+runs:
+  - runs/episodes/2026-05-09T23-51-12Z   # random
+  - runs/episodes/2026-05-10T02-37-37Z   # lowamp
+  - runs/episodes/2026-05-10T02-38-00Z   # hold
+
+run_to_controller:
+  "2026-05-09T23-51-12Z": random
+  "2026-05-10T02-37-37Z": lowamp
+  "2026-05-10T02-38-00Z": hold
+
+obs_compose: noisy_then_delayed
+
+# Stress grid — same as fixed_kalman_stress.yaml.
+noise_conditions:
+  none:    { qpos: 0.0,   qvel: 0.0,   tip_pos: 0.0,    reach_err: 0.0 }
+  low:     { qpos: 0.005, qvel: 0.005, tip_pos: 0.0025, reach_err: 0.0025 }
+  medium:  { qpos: 0.01,  qvel: 0.01,  tip_pos: 0.005,  reach_err: 0.005 }
+  high:    { qpos: 0.02,  qvel: 0.02,  tip_pos: 0.01,   reach_err: 0.01 }
+  vhigh:   { qpos: 0.04,  qvel: 0.04,  tip_pos: 0.02,   reach_err: 0.02 }
+  xhigh:   { qpos: 0.08,  qvel: 0.08,  tip_pos: 0.04,   reach_err: 0.04 }
+
+delay_grid: [0, 6, 18, 36]
+
+skip_cold_start: true
+
+input_encoding:
+  controller_names: [random, lowamp, hold]
+  sigma_field_order: [qpos, qvel, tip_pos, reach_err]
+  state_feature_fields: [qpos, qvel, tip_pos, reach_err]
+  delay_max: 36
+
+# Per-step oracle generation:
+#   force_k1_for_delayed:
+#     true (default) — for delay > 0 cells we label K* = 1.0 directly.
+#       Justified by the stress sweep result that oracle K = 1.0 for
+#       all delay >= 6 conditions (forward-model rollout error
+#       dominates observation noise once you have to integrate
+#       multiple steps). Avoids running a recursive rollout per step.
+#     false — TODO: not implemented; would compute per-step K* via
+#       forward rollout per K candidate.
+#   At delay == 0 K* is the closed-form scalar minimising
+#   ||x_pred + K*(y_obs - x_pred) - x_true||^2 with an "ideal prior"
+#   x_pred = x_true[t-1] + f(x_true[t-1], u[t-1]). Using x_true as
+#   the prior gives the tightest upper bound on what an adaptive
+#   estimator can achieve at step t.
+per_step_oracle:
+  force_k1_for_delayed: true
+
+architecture:
+  hidden_dims: [64, 64]
+
+train:
+  optimizer: adam
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  batch_size: 1024
+  epochs: 30
+  # CV strategies over conditions (each "fold" holds out all samples
+  # from one group). The total fold counts are: condition=72,
+  # noise=6, delay=4, controller=3.
+  cv_strategies: [condition, noise, delay, controller]
+
+output:
+  output_root: runs/learned_gain_models
