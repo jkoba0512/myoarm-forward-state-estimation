@@ -1,0 +1,53 @@
+# Phase B closed-loop eval: same 3 noise x 2 delay x 3 estimators x 10 eps
+# grid as joint_pd_mvp.yaml but with the K=4 multi-step forward model and
+# the re-trained Stage A learned gain. Tests whether Phase 3.2's "delay >= 6
+# K=1 is structurally optimal" limitation has been relaxed.
+
+seed: 0
+
+env_id: myoArmReachFixed-v0
+horizon: 600
+
+forward_model: runs/models/2026-05-11T09-53-07Z
+
+target_set: runs/targets/train.npz
+episodes_per_cell: 10
+
+obs_compose: noisy_then_delayed
+
+noise_conditions:
+  none:    { qpos: 0.0,   qvel: 0.0,   tip_pos: 0.0,    reach_err: 0.0 }
+  high:    { qpos: 0.02,  qvel: 0.02,  tip_pos: 0.01,   reach_err: 0.01 }
+  xhigh:   { qpos: 0.08,  qvel: 0.08,  tip_pos: 0.04,   reach_err: 0.04 }
+
+delay_grid: [0, 18]
+
+estimators:
+  - name: K=0.0
+    kind: fixed
+    gain: 0.0
+  - name: K=1.0
+    kind: fixed
+    gain: 1.0
+  - name: learned_stage_a_phaseB
+    kind: learned
+    learned_gain_model: runs/learned_gain_models/2026-05-11T10-43-29Z
+
+controller:
+  name: joint_pd
+  Kp: 30.0
+  Kd: 3.0
+  action_scale: 5.0
+  ik_max_iter: 200
+  ik_tol: 0.01
+  ik_damping: 0.1
+
+sdn:
+  sigma: 0.0
+
+success_thresholds: [0.05, 0.10, 0.15]
+success_duration: 10
+skip_cold_start_steps_use_delay: true
+save_per_episode: true
+
+output_root: runs/closed_loop

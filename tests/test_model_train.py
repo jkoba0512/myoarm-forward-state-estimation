@@ -232,6 +232,89 @@ class TestTrainSmoke:
             )
 
 
+# --- multi-step rollout supervision ---
+
+
+class TestMultiStepLoss:
+    def test_valid_starts_in_episode_only(self) -> None:
+        from myoarm_fse.models.train import _valid_multistep_starts
+        # 2 episodes of 4 transitions each; episode_index = [0,0,0,0,1,1,1,1]
+        ei = np.array([0, 0, 0, 0, 1, 1, 1, 1], dtype=np.int64)
+        starts_k1 = _valid_multistep_starts(ei, 1)
+        np.testing.assert_array_equal(starts_k1, np.arange(8))
+        starts_k4 = _valid_multistep_starts(ei, 4)
+        # K=4 needs 4 consecutive same-episode rows; first valid is 0 (ep 0),
+        # next is 4 (ep 1). Index 1, 2, 3 from ep 0 would cross into ep 1.
+        np.testing.assert_array_equal(starts_k4, np.array([0, 4]))
+        starts_k5 = _valid_multistep_starts(ei, 5)
+        np.testing.assert_array_equal(starts_k5, np.empty(0, dtype=np.int64))
+
+    def test_runs_with_multi_step_2(self) -> None:
+        ds = _toy_dataset(n_episodes=10, n_steps=10)
+        train_ds, val_ds = make_train_val_split(ds, val_step=5)
+        config = TrainConfig(
+            batch_size=8, epochs=3, early_stopping_patience=10, val_step=5,
+            multi_step=2,
+        )
+        seeds = setup_seeds(0)
+        model = ForwardMLP(
+            state_dim=ds.state_dim, action_dim=ds.action_dim,
+            hidden_dims=(16,),
+        )
+        trained, metrics = train_forward_model(
+            model, train_ds, val_ds, config, seeds=seeds,
+        )
+        assert isinstance(trained, ForwardMLP)
+        assert len(metrics["train_loss_history"]) == 3
+        # multi-step loss has the same scale (per-element MSE) so it
+        # should be on the same order of magnitude as the single-step
+        # loss values.
+        assert all(0.0 <= v < 10.0 for v in metrics["train_loss_history"])
+
+    def test_multi_step_loss_decreases(self) -> None:
+        ds = _toy_dataset(n_episodes=10, n_steps=10)
+        train_ds, val_ds = make_train_val_split(ds, val_step=5)
+        config = TrainConfig(
+            batch_size=8, epochs=20, early_stopping_patience=50, val_step=5,
+            multi_step=4,
+        )
+        seeds = setup_seeds(0)
+        model = ForwardMLP(
+            state_dim=ds.state_dim, action_dim=ds.action_dim,
+            hidden_dims=(32, 32),
+        )
+        _, metrics = train_forward_model(
+            model, train_ds, val_ds, config, seeds=seeds,
+        )
+        assert metrics["val_loss_history"][-1] < metrics["val_loss_history"][0]
+
+    def test_multi_step_too_large_for_episode(self) -> None:
+        # Episodes have n_steps=4 so transitions per episode = 3; K=5 has
+        # no valid starts.
+        ds = _toy_dataset(n_episodes=4, n_steps=4)
+        train_ds, val_ds = make_train_val_split(ds, val_step=2)
+        config = TrainConfig(
+            batch_size=4, epochs=2, early_stopping_patience=10, val_step=2,
+            multi_step=5,
+        )
+        seeds = setup_seeds(0)
+        model = ForwardMLP(
+            state_dim=ds.state_dim, action_dim=ds.action_dim,
+            hidden_dims=(8,),
+        )
+        _, metrics = train_forward_model(
+            model, train_ds, val_ds, config, seeds=seeds,
+        )
+        # All chunks invalid → loss = 0 on every epoch.
+        assert all(v == 0.0 for v in metrics["train_loss_history"])
+
+    def test_invalid_multi_step_value(self) -> None:
+        with pytest.raises(ValueError, match="multi_step"):
+            TrainConfig(multi_step=0)
+        with pytest.raises(ValueError, match="multi_step"):
+            TrainConfig(multi_step=-1)
+
+
 # --- save / load ---
 
 

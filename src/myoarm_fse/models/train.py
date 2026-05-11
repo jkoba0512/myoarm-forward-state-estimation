@@ -67,13 +67,20 @@ class TrainConfig:
     grad_clip: float | None = None
     seed: int = 0
     val_step: int = 5
+    # Multi-step rollout supervision: 1 = single-step Δx loss (default,
+    # Phase 0). ``multi_step >= 2`` switches to a rollout loss where the
+    # model predicts K consecutive steps starting from an in-episode
+    # anchor and MSE is summed over those K predictions, dividing by K
+    # for scale parity with the single-step path.
+    multi_step: int = 1
 
     def __post_init__(self) -> None:
         if self.optimizer not in ("adam", "adamw"):
             raise ValueError(
                 f"optimizer must be 'adam' or 'adamw', got {self.optimizer!r}"
             )
-        for name in ("batch_size", "epochs", "early_stopping_patience", "val_step"):
+        for name in ("batch_size", "epochs", "early_stopping_patience",
+                     "val_step", "multi_step"):
             v = getattr(self, name)
             if isinstance(v, bool) or not isinstance(v, int) or v <= 0:
                 raise ValueError(f"{name} must be a positive int, got {v!r}")
@@ -160,6 +167,27 @@ def _iter_minibatches(
         yield idx[start : start + batch_size]
 
 
+def _valid_multistep_starts(
+    episode_index: np.ndarray, K: int
+) -> np.ndarray:
+    """Indices ``i`` such that ``i, i+1, ..., i+K-1`` all share the same episode_index.
+
+    Used to build the set of valid K-step rollout anchors. ``episode_index``
+    is monotone non-decreasing in :class:`TransitionDataset` (transitions
+    are appended in episode order), so a chunk is valid iff
+    ``episode_index[i] == episode_index[i + K - 1]``.
+    """
+    n = episode_index.shape[0]
+    if K <= 0:
+        raise ValueError(f"K must be > 0, got {K}")
+    if n < K:
+        return np.empty(0, dtype=np.int64)
+    end = n - K + 1
+    head = episode_index[:end]
+    tail = episode_index[K - 1 : K - 1 + end]
+    return np.where(head == tail)[0].astype(np.int64)
+
+
 def _epoch_loss(
     model: ForwardMLP,
     ds: TransitionDataset,
@@ -168,37 +196,95 @@ def _epoch_loss(
     optimizer: torch.optim.Optimizer | None,
     rng: np.random.Generator | None,
     grad_clip: float | None,
+    multi_step: int = 1,
+    valid_starts: np.ndarray | None = None,
 ) -> float:
-    """Run one epoch of MSE loss on Δx. If ``optimizer`` is None, eval mode."""
+    """Run one epoch of MSE loss.
+
+    ``multi_step == 1`` uses the Phase 0 single-step Δx loss on every
+    transition; ``multi_step >= 2`` uses a K-step rollout loss over
+    pre-computed ``valid_starts`` indices, averaging MSE across the K
+    prediction steps.
+    """
     is_train = optimizer is not None
     model.train(is_train)
     if ds.n == 0:
         return 0.0
-    x_t = torch.from_numpy(ds.x)
-    u_t = torch.from_numpy(ds.u)
-    dx_t = torch.from_numpy(ds.dx)
+
+    if multi_step <= 1:
+        x_t = torch.from_numpy(ds.x)
+        u_t = torch.from_numpy(ds.u)
+        dx_t = torch.from_numpy(ds.dx)
+        total = 0.0
+        counted = 0
+        loss_fn = nn.MSELoss(reduction="sum")
+        for idx in _iter_minibatches(ds.n, batch_size, shuffle=is_train, rng=rng):
+            idx_t = torch.from_numpy(idx).long()
+            xb = x_t[idx_t]
+            ub = u_t[idx_t]
+            dxb = dx_t[idx_t]
+            if is_train:
+                optimizer.zero_grad(set_to_none=True)
+                pred = model(xb, ub)
+                loss = loss_fn(pred, dxb) / dxb.numel()
+                loss.backward()
+                if grad_clip is not None:
+                    nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+                optimizer.step()
+            else:
+                with torch.no_grad():
+                    pred = model(xb, ub)
+                    loss = loss_fn(pred, dxb) / dxb.numel()
+            total += float(loss.item()) * dxb.numel()
+            counted += dxb.numel()
+        return total / counted if counted > 0 else 0.0
+
+    # K-step rollout loss.
+    K = int(multi_step)
+    if valid_starts is None:
+        valid_starts = _valid_multistep_starts(ds.episode_index, K)
+    n_valid = int(valid_starts.shape[0])
+    if n_valid == 0:
+        return 0.0
+
+    x_all = torch.from_numpy(ds.x)
+    u_all = torch.from_numpy(ds.u)
+    x_next_all = torch.from_numpy(ds.x_next)
+    loss_fn = nn.MSELoss(reduction="sum")
     total = 0.0
     counted = 0
-    loss_fn = nn.MSELoss(reduction="sum")
-    for idx in _iter_minibatches(ds.n, batch_size, shuffle=is_train, rng=rng):
-        idx_t = torch.from_numpy(idx).long()
-        xb = x_t[idx_t]
-        ub = u_t[idx_t]
-        dxb = dx_t[idx_t]
+    for batch_idx in _iter_minibatches(
+        n_valid, batch_size, shuffle=is_train, rng=rng,
+    ):
+        starts_np = valid_starts[batch_idx]
+        starts = torch.from_numpy(starts_np).long()
+        # Initial state for each chunk in the minibatch.
+        x_curr = x_all[starts]                 # (B, state_dim)
+        chunk_loss = torch.zeros((), dtype=x_curr.dtype)
         if is_train:
             optimizer.zero_grad(set_to_none=True)
-            pred = model(xb, ub)
-            loss = loss_fn(pred, dxb) / dxb.numel()
+        for k in range(K):
+            u_k = u_all[starts + k]
+            x_true_k = x_next_all[starts + k]  # = x_{i+k+1}
+            if is_train:
+                dx_pred = model(x_curr, u_k)
+            else:
+                with torch.no_grad():
+                    dx_pred = model(x_curr, u_k)
+            x_pred = x_curr + dx_pred
+            # Per-step MSE; sum across K and normalize at the end.
+            chunk_loss = chunk_loss + loss_fn(x_pred, x_true_k)
+            # Free-running rollout: use the model's own prediction as the next prior.
+            x_curr = x_pred if is_train else x_pred.detach()
+        n_elems = K * starts.shape[0] * x_all.shape[1]
+        loss = chunk_loss / n_elems
+        if is_train:
             loss.backward()
             if grad_clip is not None:
                 nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
             optimizer.step()
-        else:
-            with torch.no_grad():
-                pred = model(xb, ub)
-                loss = loss_fn(pred, dxb) / dxb.numel()
-        total += float(loss.item()) * dxb.numel()
-        counted += dxb.numel()
+        total += float(loss.item()) * n_elems
+        counted += n_elems
     return total / counted if counted > 0 else 0.0
 
 
@@ -253,6 +339,16 @@ def train_forward_model(
         seeds["dataset_shuffle"] if seeds and "dataset_shuffle" in seeds else None
     )
 
+    # Pre-compute valid K-step anchor indices so each epoch only does
+    # the cheap shuffle over them.
+    K = int(config.multi_step)
+    if K > 1:
+        train_starts = _valid_multistep_starts(train_ds.episode_index, K)
+        val_starts = _valid_multistep_starts(val_ds.episode_index, K)
+    else:
+        train_starts = None
+        val_starts = None
+
     train_history: list[float] = []
     val_history: list[float] = []
     best_val = float("inf")
@@ -267,11 +363,15 @@ def train_forward_model(
             optimizer=optimizer,
             rng=shuffle_rng,
             grad_clip=config.grad_clip,
+            multi_step=K,
+            valid_starts=train_starts,
         )
         val_loss = _epoch_loss(
             model, val_ds,
             batch_size=config.batch_size,
             optimizer=None, rng=None, grad_clip=None,
+            multi_step=K,
+            valid_starts=val_starts,
         )
         train_history.append(train_loss)
         val_history.append(val_loss)
