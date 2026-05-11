@@ -25,10 +25,11 @@ from typing import Any
 import numpy as np
 import yaml
 
-from myoarm_fse.controllers import make_controller
+from myoarm_fse.controllers import JointSpacePDController, make_controller
 from myoarm_fse.data.rollout import EpisodeSpec
 from myoarm_fse.envs.actions import ActionAdapter, detect_action_dim
 from myoarm_fse.envs.factory import make_env
+from myoarm_fse.envs.ik import actuator_moment_dense, solve_ik
 from myoarm_fse.envs.noise import SignalDependentMotorNoise
 from myoarm_fse.envs.state import StateSpec
 from myoarm_fse.envs.targets import TargetSet
@@ -292,14 +293,45 @@ def main(argv: list[str] | None = None) -> Path:
                             learned_models=learned_models,
                         )
 
-                        controller = make_controller(
-                            controller_spec,
-                            action_dim=action_dim,
-                            seed=controller_seed,
-                        )
-                        controller.reset(seed=controller_seed)
-
                         target_pos = target_set.target_pos[ep_idx]
+
+                        if controller_spec.get("name") == "joint_pd":
+                            # Pre-solve IK to get target_qpos and snapshot
+                            # the moment-arm matrix at the env's current
+                            # (neutral, post-reset) pose. Both calls
+                            # preserve env state by default.
+                            import mujoco as _mj
+                            env.reset()
+                            _mj.mj_forward(env.unwrapped.mj_model,
+                                           env.unwrapped.mj_data)
+                            target_qpos, ik_info = solve_ik(
+                                env, target_pos,
+                                max_iter=int(controller_spec.get("ik_max_iter", 200)),
+                                tol=float(controller_spec.get("ik_tol", 0.01)),
+                                damping=float(controller_spec.get(
+                                    "ik_damping", 0.1
+                                )),
+                            )
+                            moment_arm = actuator_moment_dense(env)
+                            controller = JointSpacePDController(
+                                action_dim=action_dim,
+                                target_qpos=target_qpos,
+                                moment_arm=moment_arm,
+                                Kp=float(controller_spec.get("Kp", 10.0)),
+                                Kd=float(controller_spec.get("Kd", 1.0)),
+                                action_scale=float(controller_spec.get(
+                                    "action_scale", 0.1
+                                )),
+                            )
+                            controller.reset(seed=controller_seed)
+                        else:
+                            controller = make_controller(
+                                controller_spec,
+                                action_dim=action_dim,
+                                seed=controller_seed,
+                            )
+                            controller.reset(seed=controller_seed)
+                            ik_info = None
                         spec_obj = EpisodeSpec(
                             episode_id=ep_idx,
                             target_id=str(int(target_set.seeds[ep_idx])),

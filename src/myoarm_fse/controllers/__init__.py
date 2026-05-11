@@ -5,12 +5,14 @@ from typing import Any
 from myoarm_fse.controllers.base import Controller
 from myoarm_fse.controllers.heuristic_reach import HeuristicReachController
 from myoarm_fse.controllers.hold import HoldController
+from myoarm_fse.controllers.joint_pd import JointSpacePDController
 from myoarm_fse.controllers.random import RandomController
 
 __all__ = [
     "Controller",
     "HeuristicReachController",
     "HoldController",
+    "JointSpacePDController",
     "RandomController",
     "make_controller",
 ]
