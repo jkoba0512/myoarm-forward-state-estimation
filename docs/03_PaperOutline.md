@@ -72,8 +72,32 @@ delay\noise   none  low  med  high  vhigh  xhigh
   d=36       1.00  1.00 1.00  1.00  1.00   0.92  ← 新規
 ```
 
-- **Closed-loop (Phase 2 D MVP 再走)**: 期待に反して、**K=0 (prediction-only) が全 6 cell で best** (min_tip ~0.53 m vs K=1 0.66-0.77 m、Δ -12 ~ -24 cm)。R3 の (noise=none, delay=18) で観測されていた learned vs K=1 の +8.6 cm signal は消失 (Δ -0.5 cm)。
+- **Closed-loop (Phase 2 D MVP 再走、K=4)**: 期待に反して、**K=0 (prediction-only) が全 6 cell で best** (min_tip ~0.53 m vs K=1 0.66-0.77 m、Δ -12 ~ -24 cm)。R3 の (noise=none, delay=18) で観測されていた learned vs K=1 の +8.6 cm signal は消失 (Δ -0.5 cm)。
 - **解釈**: forward model が十分強い領域では、観測ノイズ補正 (blending) より prediction trust の方が制御に有利。open-loop estimation accuracy 最適 K と closed-loop task 性能最適 K が乖離する現象。stress oracle で訓練された learned predictor は依然 K≈1 を出力するが、closed-loop 真の最適 K=0 を捕捉できない。
+
+#### R5 supplementary: K=8 で paradigm shift が monotonic に深化
+
+K=8 multi-step supervision で同じ pipeline を再走:
+
+- **Open-loop**: h=50 tip_err **0.064 → 0.048 m** (further -24% vs K=4、-65% vs OLD baseline)
+- **Stress oracle**: K<1 cells 26 → 27 / 72 (新規: d=18 high で 1.0 → 0.917)
+- **Closed-loop**: **K=0 advantage が更に拡大** — Δ(K=0 − K=1) at d=18 で OLD +0.01 → K=4 -0.13 → **K=8 -0.20**:
+
+```
+Δ(K=0 - K=1) min_tip in closed-loop:
+cell           OLD       K=4       K=8
+none, d=0    -0.22    -0.24    -0.28
+none, d=18   +0.01    -0.12    -0.20
+high, d=18   +0.05    -0.15    -0.19
+xhigh,d=18   +0.04    -0.12    -0.20
+```
+
+- **K=8 で K=1 が d=18 でむしろ悪化** (min_tip 0.66 → 0.70): forward model が強くなるほど observation correction が closed-loop で hurt する
+- learned predictor の出力は K=4 とほぼ同じ (K=8 でも K=0 を出せない) — open-loop oracle で訓練している限界
+- **Paradigm progression (forward-model strength → optimal closed-loop K) が monotonic に確認**:
+  - Weak (OLD): K=1 (rely on observation)
+  - Medium (K=4): mixed (some K∈(0,1), K=0 starts winning)
+  - Strong (K=8): K=0 dominant (pure prediction)
 
 ```
 Closed-loop min_tip (NEW Phase B, mean over 10 eps):

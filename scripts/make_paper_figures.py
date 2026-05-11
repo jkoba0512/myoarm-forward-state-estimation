@@ -39,10 +39,12 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 # Locked input paths.
 STRESS_ORACLE_OLD = "runs/estimators/2026-05-10T11-01-23Z/best_by_condition.csv"
 STRESS_ORACLE_NEW = "runs/estimators/2026-05-11T09-53-59Z/best_by_condition.csv"
+STRESS_ORACLE_K8 = "runs/estimators/2026-05-11T11-48-05Z/best_by_condition.csv"
 STRESS_ORACLE = STRESS_ORACLE_OLD  # back-compat alias used in some helpers
 STRESS_EVAL = "runs/learned_gain_evals/2026-05-10T12-59-43Z/comparison.csv"
-D_MVP = "runs/closed_loop/2026-05-11T07-08-39Z/metrics.csv"          # OLD baseline D MVP
-D_MVP_PHASE_B = "runs/closed_loop/2026-05-11T10-43-45Z/metrics.csv"  # NEW K=4 D MVP
+D_MVP = "runs/closed_loop/2026-05-11T07-08-39Z/metrics.csv"            # OLD baseline D MVP
+D_MVP_PHASE_B = "runs/closed_loop/2026-05-11T10-43-45Z/metrics.csv"    # K=4 D MVP
+D_MVP_PHASE_BPRIME = "runs/closed_loop/2026-05-11T12-37-26Z/metrics.csv"  # K=8 D MVP
 E_MVP = "runs/closed_loop/2026-05-11T06-15-10Z/metrics.csv"
 BC_FULL = "runs/closed_loop/2026-05-11T08-16-43Z/metrics.csv"
 BC_V1 = "runs/closed_loop/2026-05-11T08-32-19Z/metrics.csv"
@@ -149,16 +151,19 @@ def _oracle_pivot(path: str) -> pd.DataFrame:
 
 
 def fig_F2_stress_oracle() -> None:
-    """F2: OLD (single-step) vs NEW (K=4 multi-step) oracle K heatmaps."""
+    """F2: 3-panel oracle K heatmap (single-step / K=4 / K=8)."""
     old = _oracle_pivot(STRESS_ORACLE_OLD)
-    new = _oracle_pivot(STRESS_ORACLE_NEW)
+    k4 = _oracle_pivot(STRESS_ORACLE_NEW)
+    k8 = _oracle_pivot(STRESS_ORACLE_K8)
     old.to_csv(DATA_DIR / "F2_stress_oracle_K_old.csv")
-    new.to_csv(DATA_DIR / "F2_stress_oracle_K_new.csv")
+    k4.to_csv(DATA_DIR / "F2_stress_oracle_K_new.csv")
+    k8.to_csv(DATA_DIR / "F2_stress_oracle_K_k8.csv")
 
-    fig, axes = plt.subplots(1, 2, figsize=(9.0, 3.2), sharey=True)
+    fig, axes = plt.subplots(1, 3, figsize=(12.6, 3.2), sharey=True)
     for ax, pivot, title in (
-        (axes[0], old, "Single-step forward model"),
-        (axes[1], new, "K=4 multi-step forward model"),
+        (axes[0], old, "Single-step"),
+        (axes[1], k4, "K=4 multi-step"),
+        (axes[2], k8, "K=8 multi-step"),
     ):
         im = ax.imshow(pivot.values, cmap="viridis_r", vmin=0.0, vmax=1.0,
                        aspect="auto")
@@ -175,8 +180,9 @@ def fig_F2_stress_oracle() -> None:
                         color="white" if v > 0.55 else "black", fontsize=8)
     axes[0].set_ylabel("Observation delay (steps)")
     fig.colorbar(im, ax=axes, label="Oracle K*", shrink=0.85, pad=0.02)
-    fig.suptitle("Oracle Kalman gain across the stress grid", y=1.04,
-                 fontsize=10)
+    fig.suptitle("Oracle Kalman gain across the stress grid by forward-model "
+                 "supervision",
+                 y=1.04, fontsize=10)
     _save(fig, "F2_stress_oracle_K")
 
 
@@ -508,13 +514,15 @@ def fig_F7_paradigm_shift() -> None:
         return out
 
     old = _by_cell(D_MVP)
-    new = _by_cell(D_MVP_PHASE_B)
+    k4 = _by_cell(D_MVP_PHASE_B)
+    k8 = _by_cell(D_MVP_PHASE_BPRIME)
 
     # Save tidy summary.
     rows = []
     for (n, d) in cells:
         for source, data in (("OLD_single-step", old),
-                             ("NEW_K4_multi-step", new)):
+                             ("K4_multi-step", k4),
+                             ("K8_multi-step", k8)):
             for est in ("K=0.0", "K=1.0", "learned"):
                 mu, sd = data[(n, d)].get(est, (float("nan"), float("nan")))
                 rows.append({"forward_model": source, "noise": n,
@@ -528,12 +536,13 @@ def fig_F7_paradigm_shift() -> None:
     palette = {"K=0.0": COLORS["K=0.0"], "K=1.0": COLORS["K=1.0"],
                "learned": COLORS["learned"]}
 
-    fig, axes = plt.subplots(2, 1, figsize=(7.5, 5.4), sharex=True, sharey=True)
+    fig, axes = plt.subplots(3, 1, figsize=(7.5, 7.4), sharex=True, sharey=True)
     width = 0.26
     x = np.arange(len(cells))
     for ax, data, title in (
         (axes[0], old, "Single-step forward model (Phase 3.1 / 3.3-min)"),
-        (axes[1], new, "K=4 multi-step forward model (Phase B)"),
+        (axes[1], k4, "K=4 multi-step forward model (Phase B)"),
+        (axes[2], k8, "K=8 multi-step forward model (Phase B')"),
     ):
         for j, est in enumerate(estimator_order):
             means = [data[c].get(est, (np.nan, np.nan))[0] for c in cells]
@@ -547,9 +556,9 @@ def fig_F7_paradigm_shift() -> None:
         ax.set_ylim(0, 1.0)
         ax.axhline(0.05, color="red", linestyle="--", linewidth=0.6,
                    alpha=0.4, label="_success_thr_5cm")
-    axes[1].set_xticks(x)
-    axes[1].set_xticklabels(cell_labels)
-    axes[1].set_xlabel("noise condition × delay")
+    axes[-1].set_xticks(x)
+    axes[-1].set_xticklabels(cell_labels)
+    axes[-1].set_xlabel("noise condition × delay")
     axes[0].legend(loc="upper right", frameon=False)
     fig.suptitle("Closed-loop reaching: forward-model supervision changes "
                  "the optimal estimator",

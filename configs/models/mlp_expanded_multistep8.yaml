@@ -1,0 +1,36 @@
+# Phase B' forward-model training with K=8 multi-step supervision.
+#
+# Same dataset + hyperparameters as mlp_expanded_multistep4.yaml; only
+# multi_step is doubled to test whether the paradigm shift observed at
+# K=4 (closed-loop K=0 becomes optimal) deepens further, saturates, or
+# reverses with longer rollout supervision.
+#
+# Run with:
+#   uv run python scripts/train_forward_model.py \
+#       --config configs/models/mlp_expanded_multistep8.yaml
+
+seed: 0
+
+architecture:
+  hidden_dims: [256, 256]
+
+train:
+  optimizer: adam
+  lr: 1.0e-3
+  weight_decay: 0.0
+  batch_size: 256
+  epochs: 200
+  early_stopping_patience: 20
+  early_stopping_min_delta: 0.0
+  val_step: 5
+  multi_step: 8
+
+data:
+  dataset_paths:
+    - runs/datasets/expanded.npz
+
+eval:
+  rollout_horizons: [1, 10, 50]
+
+output:
+  output_root: runs/models
