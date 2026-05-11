@@ -1,0 +1,72 @@
+# Phase 2 MVP: closed-loop evaluation comparing 3 estimators under a
+# fixed heuristic reach controller. Outputs go to
+# runs/closed_loop/{auto_id}/.
+#
+# Run with:
+#   uv run python scripts/evaluate_closed_loop.py \
+#       --config configs/closed_loop/heuristic_mvp.yaml
+
+seed: 0
+
+env_id: myoArmReachFixed-v0
+horizon: 600
+
+forward_model: runs/models/2026-05-10T07-25-23Z
+
+# Target set (reusing the collection target set keeps distribution
+# match with the data the forward model + learned gain were trained on).
+target_set: runs/targets/train.npz
+# How many episodes to roll out per (estimator, noise, delay) cell.
+# Targets are picked round-robin from the head of the target set.
+episodes_per_cell: 10
+
+obs_compose: noisy_then_delayed
+
+noise_conditions:
+  none:    { qpos: 0.0,   qvel: 0.0,   tip_pos: 0.0,    reach_err: 0.0 }
+  high:    { qpos: 0.02,  qvel: 0.02,  tip_pos: 0.01,   reach_err: 0.01 }
+  xhigh:   { qpos: 0.08,  qvel: 0.08,  tip_pos: 0.04,   reach_err: 0.04 }
+
+delay_grid: [0, 18]
+
+# Estimators compared in the closed loop. ``kind`` and ``gain`` follow
+# the same conventions as scripts/evaluate_estimator.py;
+# ``learned_gain_model`` is the model directory.
+estimators:
+  - name: K=0.0
+    kind: fixed
+    gain: 0.0
+  - name: K=1.0
+    kind: fixed
+    gain: 1.0
+  - name: learned_stage_a_retrained
+    kind: learned
+    learned_gain_model: runs/learned_gain_models/2026-05-10T11-51-09Z
+
+# Heuristic controller — see HeuristicReachController. ``W_seed`` is
+# fixed so the controller's projection matrix is identical across all
+# cells: estimator differences are the only source of variation.
+controller:
+  name: heuristic_reach
+  logit_base: 0.0
+  gain: 5.0
+  W_seed: 13
+  W_scale: 1.0
+
+# Optional SDN sigma (signal-dependent motor noise). 0 = disabled.
+sdn:
+  sigma: 0.0
+
+# Closed-loop summary parameters.
+success_thresholds: [0.05, 0.10, 0.15]
+success_duration: 10
+# Skip the first delay_steps samples of the estimation trajectory when
+# averaging tip_estimation_error; matches scripts/evaluate_estimator.py
+# skip_cold_start behaviour.
+skip_cold_start_steps_use_delay: true
+
+# Where to write per-episode JSON dumps; set to false to skip them and
+# keep only metrics.csv + summary.json.
+save_per_episode: true
+
+output_root: runs/closed_loop

@@ -3,10 +3,17 @@
 from typing import Any
 
 from myoarm_fse.controllers.base import Controller
+from myoarm_fse.controllers.heuristic_reach import HeuristicReachController
 from myoarm_fse.controllers.hold import HoldController
 from myoarm_fse.controllers.random import RandomController
 
-__all__ = ["Controller", "HoldController", "RandomController", "make_controller"]
+__all__ = [
+    "Controller",
+    "HeuristicReachController",
+    "HoldController",
+    "RandomController",
+    "make_controller",
+]
 
 
 def make_controller(
@@ -38,6 +45,15 @@ def make_controller(
             action_dim=action_dim,
             value=float(spec.get("value", 0.0)),
         )
+    if name == "heuristic_reach":
+        return HeuristicReachController(
+            action_dim=action_dim,
+            logit_base=float(spec.get("logit_base", 0.0)),
+            gain=float(spec.get("gain", 5.0)),
+            W_seed=int(spec.get("W_seed", seed)),
+            W_scale=float(spec.get("W_scale", 1.0)),
+        )
     raise ValueError(
-        f"unknown controller name {name!r}; valid: 'random', 'hold'"
+        f"unknown controller name {name!r}; "
+        "valid: 'random', 'hold', 'heuristic_reach'"
     )
