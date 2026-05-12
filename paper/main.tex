@@ -110,7 +110,7 @@ We attack the question on a 34-muscle MyoSuite reaching arm
 \cite{caggiano2022myosuite} running in the MuJoCo simulator
 \cite{todorov2012mujoco}. We learn a residual-MLP forward model from rollouts,
 use it inside a fixed-lag Kalman filter that handles a configurable
-observation delay (\K{0}--$K{=}36$\,steps) and configurable per-field
+observation delay ($d{=}0$--$36$\,steps) and configurable per-field
 Gaussian noise, sweep a $K{\in}\{0,0.25,0.5,0.75,1.0\}$ grid across noise
 and delay to define an oracle gain $K^{\star}$ per condition, and train a
 small condition-level predictor on those oracle labels. A separate
