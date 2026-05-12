@@ -394,51 +394,109 @@ same expanded dataset (51\,k transitions across 106 episodes; see
 Sec.\,\ref{sec:results-3.1}).
 
 \subsection{Fixed-Lag Kalman Estimator}
-Given an observation $y_t$ that is a delayed-and-noisy view of
-$x_{t-d}$, we maintain a length-$(d{+}1)$ buffer of past estimates and
-actions. At each step we form an innovation against the buffer's
-leftmost entry (representing $\hat x_{t-d}$), apply gain $K$
-element-wise, and roll the corrected estimate forward through the
-cached actions to obtain the present estimate. A scalar
-$K\!\in\![0,1]$ is shared across all 83 fields.
-The fixed-lag handling follows the standard buffered Rauch--Tung--Striebel
-construction \cite{rauch1965,anderson1979optimal}.
+The observation pipeline produces $y_t = h(x_{t-d}) + \eta_t$ where
+$h$ is the identity (the state vector and the observation share the
+same schema), $d\!\in\!\mathbb{Z}_{\geq 0}$ is a fixed delay in
+control steps, and $\eta_t$ is per-field i.i.d.\ Gaussian noise with
+diagonal covariance $\mathrm{diag}(\sigma^2)$. The estimator maintains
+a length-$(d{+}1)$ ring buffer of past one-step estimates
+$(\hat x_{t-d}, \dots, \hat x_{t-1})$ together with the corresponding
+applied actions $(u_{t-d}, \dots, u_{t-1})$. At each step the
+estimator first runs the forward model on every buffered estimate to
+obtain a prediction at the present time,
+\begin{equation}
+\tilde x_t = \hat x_{t-1} + f_\theta(\hat x_{t-1}, u_{t-1}),
+\end{equation}
+then forms an innovation against the \emph{delayed} buffer entry and
+applies an element-wise gain $K\!\in\![0,1]^{83}$:
+\begin{equation}
+\hat x_{t-d}
+\leftarrow
+\hat x_{t-d} + K \odot \bigl(y_t - \hat x_{t-d}\bigr),
+\label{eq:kalman_update}
+\end{equation}
+and finally re-rolls the corrected past estimate forward through the
+buffered actions to obtain the present-time estimate $\hat x_t$.
+Eq.\,(\ref{eq:kalman_update}) collapses to the standard one-step
+Kalman update when $d{=}0$. Throughout the paper $K$ is a scalar
+broadcast across the 83 fields so the gain reduces to a single
+trust knob between forward prediction ($K{=}0$) and observation
+($K{=}1$). This fixed-lag construction is the classical buffered
+Rauch--Tung--Striebel smoother specialised to a scalar
+gain~\cite{rauch1965,anderson1979optimal}.
 
 \subsection{Learned Gain Predictor}
-A small MLP $g_\phi:\mathbb{R}^{8}\!\to\![0,1]$ maps a condition feature
-vector --- 3 controller one-hot bits, 4 noise-sigma fields and one
-normalised delay --- to a scalar gain $K_\phi$ via sigmoid. The model
-is trained against the per-cell oracle $K^{\star}$ obtained by sweeping
-$K\!\in\!\{0,0.25,0.5,0.75,1.0\}$ on the noise/delay grid and selecting,
-for each of the 72 conditions, the $K$ that minimises a chosen
-criterion. The default criterion is open-loop estimation accuracy;
-Sec.\,\ref{sec:results-3.6} (C4) replaces it with closed-loop task
-error and retrains the same MLP unchanged.
+A small MLP $g_\phi:\mathbb{R}^{8}\!\to\![0,1]$ predicts the scalar
+Kalman gain from a condition feature vector. The input
+\begin{equation}
+\xi = \bigl[\,
+        \mathrm{onehot}(c)\,;\;
+        \sigma\,;\;
+        d/d_{\max}
+      \,\bigr]
+      \in \mathbb{R}^{8},
+\end{equation}
+concatenates a 3-way controller one-hot $\mathrm{onehot}(c)$, the
+4-dim noise-sigma vector $\sigma$ (\texttt{qpos}, \texttt{qvel},
+\texttt{tip\_pos}, \texttt{reach\_err}), and a normalised delay
+$d/d_{\max}$ with $d_{\max}{=}36$ steps. The network is a $8\!\to\!
+32\!\to\!32\!\to\!1$ MLP with ReLU and a sigmoid output. The training
+oracle $K^{\star}$ is obtained by, for each of the 72 conditions in
+the stress grid, sweeping $K\!\in\!\{0, 0.25, 0.5, 0.75, 1.0\}$ and
+selecting the $K$ that minimises a chosen criterion. The default
+criterion is the per-step open-loop estimation error
+$\|\hat x_t - x_t\|^2$ averaged over the episode;
+Sec.\,\ref{sec:results-3.6} (C4) replaces this criterion with the
+closed-loop $\min$-tip task error and retrains the same MLP $g_\phi$
+unchanged.
 
 \subsection{Controllers}
 Three controllers are evaluated as closed-loop wrappers around the
-estimator. \emph{(i)~Heuristic projection.} A fixed random projection
-$W\!\in\!\mathbb{R}^{34\times 3}$ maps the estimated reach-error
-$\hat r\!\in\!\mathbb{R}^{3}$ to a 34-dim muscle excitation through a
-sigmoid: $u = \sigma\!\left(b - g\,W\,\hat r\right)$. It establishes
-a state-sensitive baseline but does not actually reach.
-\emph{(ii)~Joint-space PD with inverse kinematics.} For each target
-$p^{\star}$ we solve $q^{\star} = \mathrm{IK}(p^{\star})$ once via a
-damped Jacobian pseudoinverse, then drive the arm with a joint-space
-PD law and a moment-arm muscle map:
-\begin{align*}
-u_{\text{joint}}  &= K_p\,(q^{\star} - \hat q) - K_d\,\hat{\dot q}, \\
-u_{\text{muscle}} &= \mathrm{clip}\!\left(\alpha\,\mathrm{ReLU}\!\left
-                     (M\,u_{\text{joint}}\right),\,0,\,1\right),
-\end{align*}
-where $M\!\in\!\mathbb{R}^{34\times 20}$ is the moment-arm matrix and
-$\alpha$ is a scalar action scale.
-\emph{(iii)~Behaviour-cloned MLP.} A two-hidden-layer (256 unit)
-sigmoid policy is trained on 30 scripted IK demonstrations in the
-spirit of~\cite{pomerleau1988alvinn}; we deliberately do not iterate
-the demonstrator with DAgger~\cite{ross2011dagger} and report the
-resulting open-loop collapse in Sec.\,\ref{sec:results-3.4}.
-Tuned gains: $K_p = 30$, $K_d = 3$, $\alpha = 5$.
+estimator.
+
+\emph{(i)~Heuristic projection.}
+A fixed random projection $W\!\in\!\mathbb{R}^{34\times 3}$ (drawn
+once with a fixed seed from $\mathcal{N}(0,1)^{34\times 3}$) maps the
+estimated 3-dim reach-error $\hat r$ to a 34-dim muscle excitation
+through a sigmoid:
+\begin{equation}
+u = \sigma\!\left(b - g\,W\,\hat r\right),
+\quad b{=}0,\ g{=}5,
+\label{eq:heur}
+\end{equation}
+producing a state-sensitive baseline that does not actually reach.
+
+\emph{(ii)~Joint-space PD with inverse kinematics.}
+For each target tip position $p^{\star}\!\in\!\mathbb{R}^{3}$ we solve
+$q^{\star} = \mathrm{IK}(p^{\star})$ once at episode start via a
+damped-Jacobian Newton iteration
+\begin{equation}
+q^{(k+1)} = q^{(k)} + J^{\top}\!\left(J J^{\top} + \lambda^{2} I\right)^{-1}\!
+            \bigl(p^{\star} - p(q^{(k)})\bigr),
+\label{eq:ik}
+\end{equation}
+where $J\!=\!\partial p / \partial q$ is the tip-site position
+Jacobian obtained from MuJoCo's \texttt{mj\_jacSite} and
+$\lambda^{2}{=}0.1$ is the damping. The arm is then driven by a
+joint-space PD law and a moment-arm muscle map:
+\begin{align}
+u_{\text{joint}}  &= K_p\,(q^{\star} - \hat q) - K_d\,\hat{\dot q}, \label{eq:pd}\\
+u_{\text{muscle}} &= \mathrm{clip}\!\left(\alpha\,\mathrm{ReLU}\!
+                     \left(M\,u_{\text{joint}}\right),\;0,\,1\right),
+                     \label{eq:muscle_map}
+\end{align}
+where $M\!\in\!\mathbb{R}^{34\times 20}$ is the muscle-tendon
+moment-arm matrix (the dense form of MuJoCo's sparse
+\texttt{actuator\_moment} at the env's current pose), and
+$\alpha\!=\!5$ is a scalar action scale. Tuned gains:
+$K_p\!=\!30$, $K_d\!=\!3$.
+
+\emph{(iii)~Behaviour-cloned MLP.}
+A two-hidden-layer (256 unit) sigmoid policy is trained on 30
+scripted IK demonstrations in the spirit of \cite{pomerleau1988alvinn};
+we deliberately do not iterate the demonstrator with
+DAgger~\cite{ross2011dagger} and report the resulting open-loop
+collapse in Sec.\,\ref{sec:results-3.4}.
 
 \subsection{Evaluation Pipeline}
 \emph{Open-loop} evaluation replays a recorded episode and applies
