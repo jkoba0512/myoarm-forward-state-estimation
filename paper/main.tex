@@ -364,15 +364,16 @@ A residual MLP $f_\theta(x_t, u_t)$ predicts the state delta
 $\Delta x_t {=} x_{t+1}-x_t$ from a flat 83-dim state and 34-dim excitation
 input. Architecture: two hidden layers of 256 units with ReLU and
 LayerNorm. The model is optimised with Adam \cite{kingma2015adam}.
-For the Phase~0 baseline, $f_\theta$ is trained on the standard
-single-step MSE loss
+In the single-step baseline, $f_\theta$ is trained on the standard
+one-step MSE loss
 \begin{equation}
 \mathcal{L}_1(\theta) = \mathbb{E}_{(x_t,u_t,x_{t+1})}\big[\|f_\theta(x_t,u_t)
 - \Delta x_t\|^2\big].
 \end{equation}
 
-\noindent\textbf{Multi-step rollout supervision.} For Phase~B we also train
-with a $K$-step rollout loss. For each contiguous trajectory chunk
+\noindent\textbf{Multi-step rollout supervision.} The multi-step
+variant trains $f_\theta$ with a $K$-step rollout loss instead of the
+one-step MSE. For each contiguous trajectory chunk
 $(x_t,u_t,\dots,x_{t+K})$ inside a single source episode, the model is
 unrolled free-running:
 $\hat x_{t+k} = \hat x_{t+k-1} + f_\theta(\hat x_{t+k-1}, u_{t+k-1})$,
@@ -393,43 +394,51 @@ same expanded dataset (51\,k transitions across 106 episodes; see
 Sec.\,\ref{sec:results-3.1}).
 
 \subsection{Fixed-Lag Kalman Estimator}
-Given observation $y_t$ that may be a delayed-and-noisy view of
+Given an observation $y_t$ that is a delayed-and-noisy view of
 $x_{t-d}$, we maintain a length-$(d{+}1)$ buffer of past estimates and
-actions. At each step we form an inn ovation against the buffer's leftmost
-entry (representing $\hat x_{t-d}$), apply gain $K$ element-wise, and roll
-the corrected estimate forward through the cached actions to obtain the
-present estimate. A scalar $K\!\in\![0,1]$ is shared across all 83 fields.
+actions. At each step we form an innovation against the buffer's
+leftmost entry (representing $\hat x_{t-d}$), apply gain $K$
+element-wise, and roll the corrected estimate forward through the
+cached actions to obtain the present estimate. A scalar
+$K\!\in\![0,1]$ is shared across all 83 fields.
 The fixed-lag handling follows the standard buffered Rauch--Tung--Striebel
 construction \cite{rauch1965,anderson1979optimal}.
 
-\subsection{Learned Gain (Stage~A)}
+\subsection{Learned Gain Predictor}
 A small MLP $g_\phi:\mathbb{R}^{8}\!\to\![0,1]$ maps a condition feature
-vector --- 3 controller one-hot bits, 4 noise sigma fields, and one
-normalised delay --- to a scalar gain $K_\phi$ via sigmoid. The model is
-trained on the per-cell oracle $K^{\star}$ produced by a fixed-K grid
-sweep on the same noise/delay grid, minimising MSE against $K^{\star}$ with
-$N{=}72$ examples (5 K $\times$ 24 conditions $\to$ argmin).
-Section~\ref{sec:results-3.6} (R6) replaces the open-loop oracle with a
-closed-loop one with no other changes to $g_\phi$.
+vector --- 3 controller one-hot bits, 4 noise-sigma fields and one
+normalised delay --- to a scalar gain $K_\phi$ via sigmoid. The model
+is trained against the per-cell oracle $K^{\star}$ obtained by sweeping
+$K\!\in\!\{0,0.25,0.5,0.75,1.0\}$ on the noise/delay grid and selecting,
+for each of the 72 conditions, the $K$ that minimises a chosen
+criterion. The default criterion is open-loop estimation accuracy;
+Sec.\,\ref{sec:results-3.6} (C4) replaces it with closed-loop task
+error and retrains the same MLP unchanged.
 
 \subsection{Controllers}
 Three controllers are evaluated as closed-loop wrappers around the
-estimator: (i)~a heuristic muscle controller
-$u {=} \sigma(b + g\,W\!\cdot\!{-}r)$ where $W{\in}\mathbb{R}^{34\times 3}$
-is a fixed random projection and $r$ is the estimated reach error; (ii)~a
-joint-space PD controller with one-shot damped-pseudoinverse inverse
-kinematics
-$q^{\star} {=} \mathrm{IK}(p^{\star})$ giving $u_{\text{joint}}{=}
-K_p(q^{\star}\!-\!\hat q)\!-\!K_d\hat{\dot q}$ and a moment-arm muscle
-mapping
-$u_{\text{muscle}} {=} \mathrm{clip}(\alpha\,\mathrm{ReLU}
-(M\,u_{\text{joint}}), 0, 1)$;
-and (iii)~a small behaviour-cloned MLP trained on a 30-episode scripted
-IK demonstration dataset in the spirit of~\cite{pomerleau1988alvinn};
-we do not iterate the demonstrator with DAgger~\cite{ross2011dagger} in
-this work and discuss the resulting open-loop collapse in
-Sec.\,\ref{sec:results-3.4}. Tuned gains:
-$K_p{=}30$, $K_d{=}3$, $\alpha{=}5$.
+estimator. \emph{(i)~Heuristic projection.} A fixed random projection
+$W\!\in\!\mathbb{R}^{34\times 3}$ maps the estimated reach-error
+$\hat r\!\in\!\mathbb{R}^{3}$ to a 34-dim muscle excitation through a
+sigmoid: $u = \sigma\!\left(b - g\,W\,\hat r\right)$. It establishes
+a state-sensitive baseline but does not actually reach.
+\emph{(ii)~Joint-space PD with inverse kinematics.} For each target
+$p^{\star}$ we solve $q^{\star} = \mathrm{IK}(p^{\star})$ once via a
+damped Jacobian pseudoinverse, then drive the arm with a joint-space
+PD law and a moment-arm muscle map:
+\begin{align*}
+u_{\text{joint}}  &= K_p\,(q^{\star} - \hat q) - K_d\,\hat{\dot q}, \\
+u_{\text{muscle}} &= \mathrm{clip}\!\left(\alpha\,\mathrm{ReLU}\!\left
+                     (M\,u_{\text{joint}}\right),\,0,\,1\right),
+\end{align*}
+where $M\!\in\!\mathbb{R}^{34\times 20}$ is the moment-arm matrix and
+$\alpha$ is a scalar action scale.
+\emph{(iii)~Behaviour-cloned MLP.} A two-hidden-layer (256 unit)
+sigmoid policy is trained on 30 scripted IK demonstrations in the
+spirit of~\cite{pomerleau1988alvinn}; we deliberately do not iterate
+the demonstrator with DAgger~\cite{ross2011dagger} and report the
+resulting open-loop collapse in Sec.\,\ref{sec:results-3.4}.
+Tuned gains: $K_p = 30$, $K_d = 3$, $\alpha = 5$.
 
 \subsection{Evaluation Pipeline}
 \emph{Open-loop} evaluation replays a recorded episode and applies
@@ -450,13 +459,14 @@ for closed-loop) is reused across phases.
 \subsection{Forward-model improvement cycle}
 \label{sec:results-3.1}
 
-A Phase-0 baseline trained on $\sim 3.6$\,k transitions from 6 episodes
-produced a forward model with low single-step error but unbounded
+An initial forward model trained on the original $\sim 3.6$\,k
+transitions from 6 episodes had low single-step error but unbounded
 long-horizon rollouts ($h{=}50$ MSE $\sim 10.6$). Collecting 100
-additional \texttt{random} and \texttt{lowamp} episodes (51\,k
-transitions across 106 episodes) and retraining cut $h{=}50$ MSE to
-0.052 --- a $\!\sim\!200\times$ improvement. We use this expanded
-dataset and the resulting model as the single-step baseline throughout.
+additional \texttt{random} and \texttt{lowamp} episodes (a total of
+$51\,$k transitions across 106 episodes) and retraining the same
+architecture cut $h{=}50$ MSE to 0.052 --- a $\sim\!200\times$
+improvement. We use this expanded dataset, and the resulting model,
+as the single-step baseline throughout the paper.
 
 \subsection{Where blending matters: open-loop oracle (C1)}
 \label{sec:results-3.2}
