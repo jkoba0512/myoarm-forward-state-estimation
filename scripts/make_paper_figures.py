@@ -74,10 +74,17 @@ def _save(fig: plt.Figure, name: str) -> None:
 
 
 def _setup_style() -> None:
-    """Paper-quality matplotlib rcParams shared by every figure."""
+    """Paper-quality matplotlib rcParams shared by every figure.
+
+    Uses serif (Times-like) fonts that match IEEEtran body text, and
+    mathtext "cm" so embedded math (e.g. ``$K{=}1$``) renders
+    consistently with the LaTeX paper.
+    """
     plt.rcParams.update({
-        "font.family": "sans-serif",
-        "font.sans-serif": ["DejaVu Sans", "Arial", "Helvetica"],
+        "font.family": "serif",
+        "font.serif": ["Nimbus Roman", "Liberation Serif", "Times New Roman",
+                       "Times", "DejaVu Serif"],
+        "mathtext.fontset": "stix",
         "font.size": 9,
         "axes.labelsize": 9,
         "axes.titlesize": 9.5,

@@ -163,6 +163,9 @@ multi-step-supervised forward models on this task --- the two pull the
 predictor in opposite directions.
 
 The rest of the paper is organised as follows.
+Section~\ref{sec:related} positions our work against prior literature on
+adaptive Kalman filtering, forward models in motor control, learned
+dynamics, imitation learning, and muscle-driven simulation.
 Section~\ref{sec:method} describes the task, the forward model and its
 multi-step variant, the fixed-lag Kalman estimator, the three
 controllers, and the evaluation pipeline.
@@ -170,6 +173,84 @@ Section~\ref{sec:results} reports the four claims with the corresponding
 figures.
 Section~\ref{sec:discussion} discusses the trade-offs and the
 implications for learned adaptive Kalman gains.
+
+% ============================================================
+\section{Related Work}
+\label{sec:related}
+% ============================================================
+
+\noindent\textbf{Adaptive Kalman gains.}
+The Kalman filter \cite{kalman1960} and its smoothing
+counterpart~\cite{rauch1965} are the textbook framework for combining
+a state-space model with noisy observations under known noise
+covariances. When the covariances are unknown, the classical
+\emph{adaptive Kalman filter} estimates them online from the
+innovation sequence \cite{mehra1970}; the steady-state gain $K$
+then drops out of the covariance estimate. The state-space
+formulation we adopt --- residual MLP for dynamics, fixed-lag
+buffered correction for delays --- is standard textbook
+material~\cite{anderson1979optimal}. The novelty of our setting
+is not in the filter equations but in the choice of $K$: instead of
+deriving $K$ from a noise-covariance estimate, we train a small
+condition-level predictor that maps (controller, $\sigma$, delay) to a
+scalar $K$ supervised against a swept oracle. The contribution we
+report is what happens when that oracle is open-loop versus
+closed-loop, and that distinction is largely absent from the adaptive
+Kalman literature.
+
+\smallskip
+
+\noindent\textbf{Forward / internal models in motor control.}
+The view that the central nervous system maintains an internal forward
+model of the limb to predict the sensory consequences of motor
+commands traces back to Bernstein's degrees-of-freedom
+analysis~\cite{bernstein1967} and was given an explicit computational
+framing by Wolpert and Ghahramani~\cite{wolpert2000}, who identified
+forward and inverse models as complementary processes underlying
+sensorimotor estimation, prediction, and learning. Our residual MLP is
+a coarse instantiation of the forward model in that picture; the
+multi-step supervision we add is motivated by the fact that the loop
+that consumes the estimate operates over hundreds of integration steps
+and thus depends on long-horizon prediction quality.
+
+\smallskip
+
+\noindent\textbf{Learned dynamics and multi-step supervision.}
+Model-based reinforcement-learning systems have moved from one-step
+dynamics losses to multi-step rollout objectives because closed-loop
+planners need predictions that survive being unrolled. Dreamer
+\cite{hafner2020dreamer} backpropagates through imagined trajectories
+in a latent world model, and MBPO \cite{janner2019mbpo} branches
+short model rollouts from real data, formalising ``when to trust your
+model''. We take the same lesson into Kalman filtering: a forward
+model that is accurate enough over the controller's planning horizon
+shifts where blending is helpful and where it is harmful.
+
+\smallskip
+
+\noindent\textbf{Imitation learning for closed-loop reach.}
+Behaviour cloning has been used for closed-loop control since
+ALVINN~\cite{pomerleau1988alvinn}; the standard fix for the resulting
+covariate shift is DAgger~\cite{ross2011dagger}. We deliberately
+\emph{do not} apply DAgger in this work and report the resulting
+open-loop collapse as a methodological observation
+(Sec.\,\ref{sec:results-3.4}): at the demonstration scale we test,
+BC controllers reach better than the joint-PD baseline but consume
+state estimates weakly enough that estimator differences vanish,
+which we read as a cautionary note for closed-loop estimator
+benchmarks built on BC controllers.
+
+\smallskip
+
+\noindent\textbf{Muscle-driven simulation.}
+Our task runs in MuJoCo \cite{todorov2012mujoco} via the MyoSuite
+musculoskeletal benchmark \cite{caggiano2022myosuite}, which provides
+a 34-muscle reaching arm and a contact-rich set of tasks suitable for
+sensorimotor estimation studies. MyoSuite is increasingly used as a
+testbed for reinforcement-learning controllers; here we use it instead
+to expose the trade-off between forward-model accuracy and the
+training oracle of a learned Kalman gain, a question that the
+RL-centric literature has not addressed.
 
 % ============================================================
 \section{Method}
