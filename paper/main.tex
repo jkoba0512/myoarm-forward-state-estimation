@@ -139,7 +139,8 @@ state-coupled controllers.
 rollout supervision ($K{=}4$, then $K{=}8$) cuts $h{=}50$ tip-prediction
 error by 54--65\% and widens the open-loop $K{<}1$ regime to delay
 $\geq 18$\,steps. In closed loop, however, prediction-only ($K{=}0$)
-becomes globally optimal: it beats $K{=}1$ by 12--24\,cm in $\min$-tip
+becomes the best estimator across our focused joint-PD closed-loop grid
+under the $\min$-tip objective: it beats $K{=}1$ by 12--24\,cm in $\min$-tip
 error, and the condition-level predictor still outputs $K\!\approx\!1$
 because the open-loop oracle it was trained against never selects
 $K{=}0$ (Fig.\,\ref{fig:F7_paradigm}, panels 1--3).
@@ -460,13 +461,28 @@ concatenates a 3-way controller one-hot $\mathrm{onehot}(c)$, the
 $d/d_{\max}$ with $d_{\max}{=}36$ steps. The network is a $8\!\to\!
 32\!\to\!32\!\to\!1$ MLP with ReLU and a sigmoid output. The training
 oracle $K^{\star}$ is obtained by, for each of the 72 conditions in
-the stress grid, sweeping $K\!\in\!\{0, 0.25, 0.5, 0.75, 1.0\}$ and
-selecting the $K$ that minimises a chosen criterion. The default
-criterion is the per-step open-loop estimation error
-$\|\hat x_t - x_t\|^2$ averaged over the episode;
-Sec.\,\ref{sec:results-3.6} (C4) replaces this criterion with the
-closed-loop $\min$-tip task error and retrains the same MLP $g_\phi$
-unchanged.
+the stress grid, sweeping $K\!\in\!K_{\mathrm{grid}}\!=\!\{0, 0.25,
+0.5, 0.75, 1.0\}$ and selecting the $K$ that minimises a chosen
+criterion. We distinguish two oracles --- an \emph{open-loop} one
+based on estimation accuracy, and a \emph{closed-loop} one based on
+downstream task error:
+\begin{align}
+K^{\star}_{\mathrm{ol}}(\sigma, d, c)
+  &= \arg\min_{K \in K_{\mathrm{grid}}}\;
+     \mathbb{E}_t\!\big[\|\hat x_t(K) - x_t\|^2 \,\big|\, \sigma, d, c\big],
+     \label{eq:K_ol}\\
+K^{\star}_{\mathrm{cl}}(\sigma, d, c)
+  &= \arg\min_{K \in K_{\mathrm{grid}}}\;
+     \mathbb{E}\!\big[\textsc{minTip}(K) \,\big|\, \sigma, d, c\big],
+     \label{eq:K_cl}
+\end{align}
+where $(\sigma, d, c)$ ranges over (noise level, delay, controller) and
+$\textsc{minTip}$ is the closed-loop minimum tip-to-target distance over
+the episode. The default training oracle for $g_\phi$ is
+$K^{\star}_{\mathrm{ol}}$; Sec.\,\ref{sec:results-3.6} (C4) replaces it
+with $K^{\star}_{\mathrm{cl}}$ and retrains the same MLP unchanged. The
+contrast between $K^{\star}_{\mathrm{ol}}$ and $K^{\star}_{\mathrm{cl}}$
+is the central observation of this paper.
 
 \subsection{Controllers}
 Three controllers are evaluated as closed-loop wrappers around the
@@ -583,27 +599,35 @@ Only 18 of 72 conditions (25\%) require $K^{\star}{<}1$.
 \includegraphics[width=\columnwidth]{F4_phase2d_delta_heatmap.pdf}
 \caption[Where the learned predictor beats $K{=}1$ in closed loop.]%
 {\textbf{Closed-loop reaching: signed difference $\Delta = \text{learned} -
-(K{=}1)$ in min-tip and final-tip error per (noise, delay) cell,
-under the single-step-supervised forward model and the joint-PD
-controller (mean over 10 episodes per cell).} Blue cells favour the
-learned predictor, red cells favour $K{=}1$, white cells are within
-$\pm 0.02$\,m. The $-8.6$\,cm signal at (none, $d{=}18$) is the only
-cell where the learned predictor clearly beats $K{=}1$ --- exactly
-the regime where the open-loop oracle of Fig.\,\ref{fig:F2_oracle}
-says $K^{\star}{=}1$, but where in closed loop the controller's
-reliance on the buffered prediction makes a tighter estimate pay off.
-Other cells differ by less than $2$\,cm.}
+(K{=}1)$ in final-tip (left) and $\min$-tip (right) error per
+(noise, delay) cell, under the single-step-supervised forward model
+and the joint-PD controller (mean over 10 episodes per cell).} Blue
+cells favour the learned predictor, red cells favour $K{=}1$, white
+cells are within $\pm 0.02$\,m. The $-8.6$\,cm signal in the
+\emph{final-tip} panel at (none, $d{=}18$) (corresponding $\min$-tip
+gap: $-3.2$\,cm) is the only cell where the learned predictor clearly
+beats $K{=}1$, even though it outputs $K\!\approx\!0.99$ there ---
+exactly the regime where the open-loop oracle of
+Fig.\,\ref{fig:F2_oracle} says $K^{\star}{=}1$, but where in closed
+loop the controller's reliance on the buffered prediction makes a
+slightly tighter estimate pay off. Other cells differ by less than
+$2$\,cm in either metric.}
 \label{fig:F4_phase2d}
 \end{figure}
 
 We evaluate three estimators ($K{=}0$, $K{=}1$, Stage~A learned) under the
 joint-PD controller on $3$ noise $\times$ 2 delay $\times$ 10 episodes.
-Fig.\,\ref{fig:F4_phase2d} shows the $\min$-tip differences between the
-learned predictor and the $K{=}1$ baseline. The learned predictor beats
-$K{=}1$ by 8.6\,cm at (none, $d{=}18$) --- exactly the regime where the
-open-loop oracle says blending is least useful, but where in closed loop
-the controller's reliance on the buffered prediction makes a tighter
-estimate pay off. Other cells differ by less than $2$\,cm.
+At (noise=none, $d{=}18$) the Stage~A predictor outputs $K\!\approx\!0.99$
+--- barely below $K{=}1$ --- and Fig.\,\ref{fig:F4_phase2d} reports
+the (learned $- K{=}1$) signed difference in both $\min$-tip and
+final-tip error per cell. The headline 8.6\,cm advantage at this cell
+is on \emph{final-tip} error (mean over 10 episodes); the corresponding
+$\min$-tip gap is 3.2\,cm. This is the only cell where the learned
+predictor clearly beats $K{=}1$ --- exactly the regime where the
+open-loop oracle says blending is least useful, but where in closed
+loop a small reduction below $K{=}1$ lets the buffered prediction carry
+the trajectory after observation correction. Other cells differ by
+less than $2$\,cm in either metric.
 
 The trajectory plot in Fig.\,\ref{fig:F5_traj} shows that at this cell
 $K{=}0$ diverges (the prediction-only rollout is too inaccurate over
@@ -671,22 +695,29 @@ side result and return to it in the discussion.
 \includegraphics[width=0.85\textwidth]{F7_paradigm_shift.pdf}
 \caption[Forward-model supervision and oracle choice change the optimal
 closed-loop estimator.]%
-{\textbf{Closed-loop min-tip reaching error under the joint-PD
-controller across four (forward-model, oracle) variants.} Each
-panel reports mean $\pm$ standard deviation over 10 episodes per
-cell for three estimators: $K{=}0$ (prediction-only, orange),
-$K{=}1$ (observation-only, blue), and the learned condition-level
-predictor $g_\phi$ (green). The dashed horizontal line marks the
-5\,cm reach threshold. (1) Single-step-supervised forward model:
-$K{=}0$ diverges in some cells, the learned predictor sits near
-$K{=}1$. (2)~$K{=}4$ multi-step supervision: $K{=}0$ becomes
-competitive. (3)~$K{=}8$ multi-step: $K{=}0$ is best in every
-cell while the learned predictor still tracks $K{=}1$ because its
-open-loop oracle never selected $K{=}0$. (4)~Same $K{=}8$ forward
-model, but $g_\phi$ retrained against the closed-loop oracle
-(Sec.\,\ref{sec:results-3.6}): the green learned bar now matches
-the orange $K{=}0$ bar at the three delay-18 cells, closing
-40--60\,\% of the gap at the delay-0 cells.}
+{\textbf{Closed-loop $\min$-tip reaching error under the joint-PD
+controller across four (forward-model supervision, gain-oracle
+choice) variants.} The panels traverse two of the paper's three
+axes: rows (1)$\to$(3) vary forward-model supervision (single-step
+$\to K{=}4 \to K{=}8$ rollout) holding the open-loop oracle
+$K^{\star}_{\mathrm{ol}}$ fixed; row~(4) flips the oracle from
+$K^{\star}_{\mathrm{ol}}$ to $K^{\star}_{\mathrm{cl}}$ holding the
+$K{=}8$ forward model fixed; the third axis (controller coupling) is
+held constant at joint-PD here and varied in
+Fig.\,\ref{fig:F6_tradeoff}. Each panel reports mean $\pm$ standard
+deviation over 10 episodes per cell for three estimators: $K{=}0$
+(prediction-only, orange), $K{=}1$ (observation-only, blue), and the
+learned condition-level predictor $g_\phi$ (green). The dashed
+horizontal line marks the 5\,cm reach threshold. (1)~Single-step-
+supervised forward model: $K{=}0$ diverges in some cells, the
+learned predictor sits near $K{=}1$. (2)~$K{=}4$ multi-step
+supervision: $K{=}0$ becomes competitive. (3)~$K{=}8$ multi-step:
+$K{=}0$ is best in every cell while the learned predictor still
+tracks $K{=}1$ because its open-loop oracle never selected $K{=}0$.
+(4)~Same $K{=}8$ forward model, but $g_\phi$ retrained against
+$K^{\star}_{\mathrm{cl}}$ (Sec.\,\ref{sec:results-3.6}): the green
+learned bar now matches the orange $K{=}0$ bar at the three
+delay-18 cells, closing 40--60\,\% of the gap at the delay-0 cells.}
 \label{fig:F7_paradigm}
 \end{figure*}
 
@@ -789,11 +820,13 @@ results are on a single MyoSuite reach task; transfer to grasp/place
 tasks is open. (d)~The 17\,cm residual at $d{=}0$ is structural and could
 be closed with a predictor parameterisation that supports $K{=}0$
 exactly. (e)~The residual MLP used here is a discrete-time,
-feed-forward approximation of the cerebellar forward model; a
-continuous-time recurrent family with input-dependent time constants
-(LTC~\cite{hasani2021liquid}, CfC~\cite{hasani2022cfc}) maps more
-closely to the cerebellar microcircuit and is a natural extension when
-this estimator is plugged into a full cortico-cerebellar loop.
+feed-forward approximation at the box level of the cerebellar
+forward-model hypothesis; a continuous-time recurrent family with
+input-dependent time constants (LTC~\cite{hasani2021liquid},
+CfC~\cite{hasani2022cfc}) provides a closer computational analogue of
+continuous-time recurrent cerebellar forward-model hypotheses and is
+a natural extension when this estimator is plugged into a full
+cortico-cerebellar loop.
 
 % ============================================================
 \section{Conclusion}
@@ -806,7 +839,8 @@ the oracle used to train any learned gain predictor. Single-step
 supervision of the forward model creates a small but real regime where
 a learned condition-level gain beats observation-only by 8.6\,cm at the
 delay-dominated cell (C2). Multi-step supervision flips the regime:
-$K{=}0$ becomes globally optimal in closed loop, with the gap to $K{=}1$
+$K{=}0$ becomes the best estimator across the focused joint-PD closed-loop
+grid under the $\min$-tip objective, with the gap to $K{=}1$
 growing to 12--24\,cm (C3). Redefining the predictor's training oracle
 in terms of closed-loop task error rather than open-loop estimation
 accuracy aligns the predictor with the new regime and recovers most of
