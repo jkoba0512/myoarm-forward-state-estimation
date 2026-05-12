@@ -36,17 +36,16 @@
 \title{When Should a Kalman Filter Trust Its Forward Model?\\
 Closed-Loop Evidence from a Muscle-Driven Reaching Task}
 
-\author{
-    Anonymous Submission% Authors filled in at submission
-    \thanks{Manuscript draft for IEEE Transactions on Neural Networks and
-    Learning Systems. This work was supported in part by [redacted].
-    Corresponding author: [redacted].}%
+\author{Junichi~Kobayashi%
+    \thanks{Manuscript received [date]; revised [date]. J.~Kobayashi
+    is with [Affiliation TBD] (e-mail: jkoba0512@gmail.com). This work
+    was supported in part by [funding source TBD]. Code and configs
+    are released at [repository URL TBD].}%
 }
 
-\markboth{IEEE Transactions on Neural Networks and Learning Systems, vol.~X,
-no.~X, MMM~YYYY}%
-{Anonymous \MakeLowercase{\textit{et al.}}: When Should a Kalman Filter Trust
-Its Forward Model?}
+\markboth{IEEE Transactions on Neural Networks and Learning Systems,
+\,vol.~X,\,no.~X,\,Month~YYYY}%
+{Kobayashi: When Should a Kalman Filter Trust Its Forward Model?}
 
 \maketitle
 
@@ -651,7 +650,7 @@ side result and return to it in the discussion.
 \subsection{Long-horizon supervision flips the optimum (C3)}
 \label{sec:results-3.5}
 
-\begin{figure*}[t]
+\begin{figure*}[!htbp]
 \centering
 \includegraphics[width=0.85\textwidth]{F7_paradigm_shift.pdf}
 \caption[Forward-model supervision and oracle choice change the optimal
@@ -798,7 +797,8 @@ state estimators.
 % ============================================================
 \section*{Acknowledgement}
 % ============================================================
-\noindent We thank [redacted] for [redacted].
+\noindent The author thanks the MyoSuite maintainers for releasing the
+musculoskeletal benchmark used in this study.
 
 \bibliographystyle{IEEEtran}
 \bibliography{refs}
