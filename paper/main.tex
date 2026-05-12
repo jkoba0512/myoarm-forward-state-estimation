@@ -51,28 +51,36 @@ Its Forward Model?}
 \maketitle
 
 \begin{abstract}
-We study the role of a learned forward model and a learned Kalman gain in a
-closed-loop muscle-driven reaching task. Using a 34-muscle MyoSuite arm and a
-fixed-lag Kalman estimator that blends a residual-MLP forward prediction with
-delayed noisy observations, we sweep observation noise and delay to define an
-open-loop oracle Kalman gain $K^{\star}$ and train a small condition-level
-predictor on those labels. In closed loop, a joint-space PD controller with
-inverse-kinematics target reveals three findings. (i)~With a single-step-
-supervised forward model, the learned predictor beats observation-only by
-$8.6$\,cm at a single low-noise large-delay cell. (ii)~When the forward
-model is retrained with $K$-step rollout supervision ($K\!\in\!\{4,8\}$),
-its long-horizon tip-prediction error drops by 54--65\% and the closed-loop
-optimum flips: \emph{prediction-only} ($K{=}0$) becomes the best estimator
-across the entire grid, beating observation-only by 12--24\,cm, while the
-condition-level predictor still outputs $K\!\approx\!1$ because it is trained
-on the open-loop oracle. (iii)~Redefining the predictor's training oracle as
-closed-loop task error rather than open-loop estimation accuracy (Phase~C)
-moves its output to $K\!\approx\!0.02$, recovers the $K{=}0$ baseline within
-$1.5$\,cm at delay $\geq 18$\,steps, and closes 40--60\% of the gap at zero
-delay --- with no change to the predictor architecture. The results show
-that the right Kalman gain in closed loop depends not only on the noise/delay
-regime but on \emph{what objective the predictor was trained against}, and
-that learned-Kalman-gain papers should specify this oracle choice explicitly.
+We study how a learned forward model and a learned Kalman gain interact
+in a closed-loop muscle-driven reaching task. A residual MLP forward
+model and a fixed-lag Kalman filter blend predictions with delayed
+noisy observations of a 34-muscle MyoSuite arm; a small condition-level
+predictor maps (noise, delay, controller) to a scalar gain $K$ trained
+against an open-loop oracle. Plugging the estimator into a joint-space
+PD controller with an inverse-kinematics target reveals a chain of
+findings. \emph{First}, with a single-step-supervised forward model the
+learned predictor matches the oracle and beats observation-only
+($K{=}1$) by $8.6$\,cm at the low-noise large-delay cell where blending
+matters most. \emph{Second}, behaviour-cloned controllers reach the
+target more reliably but consume the estimator output weakly enough
+that the per-cell gap collapses to under 3\,cm, suggesting that
+closed-loop estimator benchmarks need state-coupled controllers.
+\emph{Third}, retraining the forward model with $K$-step rollout
+supervision ($K{\in}\{4,8\}$) reduces $h{=}50$ tip-prediction error by
+54--65\% and shifts the closed-loop optimum to prediction-only
+($K{=}0$), which now beats $K{=}1$ by 12--24\,cm across the entire
+grid, while the condition-level predictor still outputs
+$K\!\approx\!1$ because the open-loop oracle it was trained against
+never selects $K{=}0$. \emph{Fourth}, redefining the predictor's
+training oracle in terms of closed-loop task error rather than
+open-loop estimation accuracy moves its output to
+$K\!\approx\!0.02$, matches the $K{=}0$ baseline within $1.5$\,cm at
+delay $\geq 18$\,steps, and closes 40--60\% of the gap at zero delay
+--- with no change to the predictor architecture. The right Kalman
+gain in closed loop therefore depends not only on the noise and delay
+regime but on \emph{what objective the predictor was trained against},
+and learned-Kalman-gain papers should specify the oracle choice
+explicitly.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -110,55 +118,58 @@ small condition-level predictor on those oracle labels. A separate
 joint-space PD controller with one-shot inverse-kinematics target then
 \emph{deploys} the estimator in closed loop.
 
-Our contribution is five-fold (R1--R5/R6 below). The first three confirm and
-quantify a textbook intuition; the last two are negative-then-positive
-findings about how to train an adaptive Kalman gain.
+Our contributions are summarised in four claims.
 
 \begin{itemize}
-\item \textbf{R1.} Under a single-step-supervised forward model the oracle
-$K^{\star}$ falls from $1.0$ to $0.25$ across noise at zero delay but
-\emph{collapses uniformly to $1.0$ at delay $\geq 18$\,steps}, because the
-forward-model rollout error compounds faster than observation noise grows
-(Fig.\,\ref{fig:F2_oracle}, left panel).
+\item \textbf{C1 (R1).} Under a single-step-supervised forward model the
+oracle $K^{\star}$ falls from $1.0$ to $0.25$ across noise at zero delay
+but collapses uniformly to $1.0$ at delay $\geq 18$\,steps, because the
+forward-model rollout error compounds faster than the observation noise
+grows (Fig.\,\ref{fig:F2_oracle}, left panel).
 
-\item \textbf{R3.} A learned condition-level predictor matches the oracle
-within $0.6$\,cm on average and beats $K{=}1$ by \textbf{8.6\,cm} in
+\item \textbf{C2 (R3, R4).} A learned condition-level predictor matches
+the oracle within $0.6$\,cm on average and beats $K{=}1$ by 8.6\,cm in
 closed-loop reaching at the (low-noise, large-delay) cell where blending
 matters most (Fig.\,\ref{fig:F4_phase2d}). Behaviour-cloned controllers
-improve reaching but \emph{wash out} the estimator signal because the small
+improve reaching but wash out the estimator signal because the small
 demonstration set causes the policy to collapse to an open-loop average
-(Fig.\,\ref{fig:F6_tradeoff}).
+(Fig.\,\ref{fig:F6_tradeoff}); closed-loop estimator benchmarks require
+state-coupled controllers.
 
-\item \textbf{R5.} Retraining the forward model with $K$-step rollout
-supervision ($K{=}4$ then $K{=}8$) reduces $h{=}50$ tip-prediction error by
-54--65\% and \emph{widens} the open-loop K${<}1$ regime to delay
-$\geq 18$\,steps. In closed loop, however, \emph{prediction-only}
-($K{=}0$) becomes globally optimal: it beats $K{=}1$ by 12--24\,cm
-in $\min$-tip error and the condition-level predictor still outputs
-$K\!\approx\!1$ because the open-loop oracle it was trained on never
-selects $K{=}0$ (Fig.\,\ref{fig:F7_paradigm}, panels 1--3).
+\item \textbf{C3 (R5).} Retraining the forward model with $K$-step
+rollout supervision ($K{=}4$, then $K{=}8$) cuts $h{=}50$ tip-prediction
+error by 54--65\% and widens the open-loop $K{<}1$ regime to delay
+$\geq 18$\,steps. In closed loop, however, prediction-only ($K{=}0$)
+becomes globally optimal: it beats $K{=}1$ by 12--24\,cm in $\min$-tip
+error, and the condition-level predictor still outputs $K\!\approx\!1$
+because the open-loop oracle it was trained against never selects
+$K{=}0$ (Fig.\,\ref{fig:F7_paradigm}, panels 1--3).
 
-\item \textbf{R6.} Redefining the predictor's training oracle as closed-loop
-task error (per-cell K-sweep of closed-loop $\min$-tip) and retraining the
-same MLP recovers $K\!\approx\!0.02$, matches the $K{=}0$ baseline within
-$1.5$\,cm at all delay-18 cells, and closes 40--60\% of the gap at
-delay-0 cells (Fig.\,\ref{fig:F7_paradigm}, panel~4). The residual
-delay-0 gap is structural: the K-curve there jumps sharply from $K{=}0$
-to $K{=}0.25$, so the predictor's sigmoid asymptote loses $\sim 0.17$\,m.
+\item \textbf{C4 (R6).} Replacing the predictor's training oracle with
+per-cell closed-loop $K$-sweep labels and retraining the same MLP yields
+$K\!\approx\!0.02$, matches the $K{=}0$ baseline within $1.5$\,cm at all
+delay-18 cells, and closes 40--60\% of the gap at delay-0 cells
+(Fig.\,\ref{fig:F7_paradigm}, panel~4). The residual delay-0 gap is
+structural: the K-curve there jumps sharply from $K{=}0$ to $K{=}0.25$,
+so the predictor's sigmoid asymptote loses $\sim\!0.17$\,m.
 \end{itemize}
 
-The combined narrative is that, in closed-loop control, the optimal Kalman
-gain depends on (a)~the forward model's accuracy over the controller's
-planning horizon and (b)~the oracle used to train any learned $K$-predictor;
-the two regimes can fight each other when the open-loop oracle is used
-without thought.
+Together, C1--C4 say that the optimal closed-loop Kalman gain depends on
+two coupled choices that the literature usually treats as independent:
+the forward model's accuracy over the controller's planning horizon, and
+the oracle the $K$-predictor was trained against. When the open-loop
+oracle and the closed-loop optimum disagree --- as they do for
+multi-step-supervised forward models on this task --- the two pull the
+predictor in opposite directions.
 
-The rest of the paper is organised as follows. Section~\ref{sec:method}
-describes the task, the forward model and multi-step supervision, the
-fixed-lag Kalman estimator, the controllers, and the evaluation pipeline.
-Section~\ref{sec:results} reports the results in order R1--R6 with the
-corresponding figures. Section~\ref{sec:discussion} discusses the
-trade-offs and implications for learned adaptive Kalman gains.
+The rest of the paper is organised as follows.
+Section~\ref{sec:method} describes the task, the forward model and its
+multi-step variant, the fixed-lag Kalman estimator, the three
+controllers, and the evaluation pipeline.
+Section~\ref{sec:results} reports the four claims with the corresponding
+figures.
+Section~\ref{sec:discussion} discusses the trade-offs and the
+implications for learned adaptive Kalman gains.
 
 % ============================================================
 \section{Method}
@@ -355,44 +366,43 @@ for closed-loop) is reused across phases.
 \label{sec:results}
 % ============================================================
 
-\subsection{Forward model improvement cycle}
+\subsection{Forward-model improvement cycle}
 \label{sec:results-3.1}
 
-The Phase~0 baseline ($K{=}1$ single-step loss) trained on the original
-$\sim 3.6$\,k transitions from 6 baseline episodes already produced a
-forward model with low single-step error but unbounded long-horizon
-rollouts ($h{=}50$ MSE $\sim 10.6$). After collecting 100 additional
-\texttt{random} and \texttt{lowamp} episodes (total $\sim 51$\,k
-transitions across 106 episodes) and retraining, $h{=}50$ MSE dropped to
-0.052 --- a $200\times$ improvement that we use as the single-step
-baseline throughout this paper.
+A Phase-0 baseline trained on $\sim 3.6$\,k transitions from 6 episodes
+produced a forward model with low single-step error but unbounded
+long-horizon rollouts ($h{=}50$ MSE $\sim 10.6$). Collecting 100
+additional \texttt{random} and \texttt{lowamp} episodes (51\,k
+transitions across 106 episodes) and retraining cut $h{=}50$ MSE to
+0.052 --- a $\!\sim\!200\times$ improvement. We use this expanded
+dataset and the resulting model as the single-step baseline throughout.
 
-\subsection{Where blending matters: open-loop oracle (R1)}
+\subsection{Where blending matters: open-loop oracle (C1)}
 \label{sec:results-3.2}
 
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{F2_stress_oracle_K.pdf}
-\caption{Open-loop oracle Kalman gain $K^{\star}$ as a function of
-observation delay and noise level, averaged over 3 controllers and 4
-delays $\times$ 6 noise levels $\times$ 3 controllers $\times$ 5 K
-sweep $= 360$ cells. Three forward-model variants: single-step, $K{=}4$
-multi-step, and $K{=}8$ multi-step. Under single-step supervision the
-$K{<}1$ regime is confined to zero delay; multi-step supervision widens
-it to delay $\geq 6$\,steps in high-noise cells.}
+\caption{Open-loop oracle Kalman gain $K^{\star}$ across the stress
+grid (3 controllers $\times$ 6 noise levels $\times$ 4 delays $\times$
+5 $K$-values, 360 cells; mean across controllers shown). Three
+forward-model variants: single-step, $K{=}4$ multi-step, and $K{=}8$
+multi-step. Under single-step supervision the $K{<}1$ regime is
+confined to zero delay; multi-step supervision widens it to delay
+$\geq 6$\,steps in the high-noise cells.}
 \label{fig:F2_oracle}
 \end{figure*}
 
-Fig.\,\ref{fig:F2_oracle} (left panel) shows the oracle $K^{\star}$ under
+Fig.\,\ref{fig:F2_oracle} (left panel) plots the oracle $K^{\star}$ for
 the single-step-supervised forward model. At zero delay $K^{\star}$
 decreases monotonically from $1.0$ (no noise) to $0.25$ (extreme noise),
-recovering the textbook intuition that high observation noise warrants
-lower trust in the sensor. At delay~$\geq 18$\,steps, however, $K^{\star}$
-is uniformly $1.0$: the rollout error compounds faster than observation
-noise grows, so even noisy observations beat the propagated forward-model
-estimate. Of 72 conditions only 18 (25\%) have $K^{\star}{<}1$.
+recovering the textbook intuition that noisy observations should be
+trusted less. At delay $\geq 18$\,steps, however, $K^{\star}$ is
+uniformly $1.0$: forward-model error compounds faster than observation
+noise grows, so even noisy observations beat the propagated estimate.
+Only 18 of 72 conditions (25\%) require $K^{\star}{<}1$.
 
-\subsection{Closed-loop differentiation, single-step model (R3)}
+\subsection{Closed-loop differentiation, single-step model (C2)}
 \label{sec:results-3.3}
 
 \begin{figure}[t]
@@ -428,7 +438,7 @@ each estimator.}
 \label{fig:F5_traj}
 \end{figure}
 
-\subsection{Behaviour-cloned controllers wash out the estimator signal (R4)}
+\subsection{Behaviour-cloned controllers wash out the signal (C2 cont.)}
 \label{sec:results-3.4}
 
 \begin{figure}[t]
@@ -454,7 +464,7 @@ trajectory does not actually consume per-step state estimates strongly
 enough to surface estimator differences. We treat this as a controller-
 side result and return to it in the discussion.
 
-\subsection{Long-horizon supervision flips the closed-loop optimum (R5)}
+\subsection{Long-horizon supervision flips the optimum (C3)}
 \label{sec:results-3.5}
 
 \begin{figure*}[t]
@@ -495,7 +505,7 @@ selects $K^{\star}{=}1$ or close to it (the open-loop estimation error is
 minimised by trusting the observation when the buffer rollout is long).
 The optimum gap thus widens, not closes, with supervision strength.
 
-\subsection{Closed-loop-aware oracle resolves the gap (R6)}
+\subsection{Closed-loop-aware oracle resolves the gap (C4)}
 \label{sec:results-3.6}
 
 We address the gap by changing only the oracle definition. Under the
@@ -522,20 +532,20 @@ predictor is $-16$\,cm. No architectural changes were made.
 % ============================================================
 
 \noindent\textbf{Forward-model accuracy reshapes the closed-loop optimum.}
-Phase~B/B' shows that the $K^{\star}$ that minimises open-loop estimation
-error is not the same as the $K^{\star}$ that minimises closed-loop task
-error. As the forward model becomes accurate enough to roll out over the
-controller's planning horizon, observation correction starts to actively
-hurt rather than help. The condition-level predictor trained on the
-open-loop oracle is then mismatched by 0.5--0.7 in $K$ from the closed-loop
-truth. We interpret this as a structural finding rather than an artifact:
-the same arm dynamics and observation noise produce different optimal
-estimators depending on whether the readout is the residual of a one-step
-update or the cumulative effect of feedback control over hundreds of steps.
+The $K^{\star}$ that minimises open-loop estimation error is not the same
+as the $K^{\star}$ that minimises closed-loop task error (C3). As the
+forward model becomes accurate enough to roll out over the controller's
+planning horizon, observation correction starts to actively hurt rather
+than help: the condition-level predictor trained on the open-loop oracle
+is then mismatched by 0.5--0.7 in $K$ from the closed-loop truth. We
+read this as a structural finding rather than an artifact: identical
+arm dynamics and observation noise produce different optimal estimators
+depending on whether the readout is the residual of a one-step update
+or the cumulative effect of feedback control over hundreds of steps.
 
 \smallskip
 
-\noindent\textbf{Oracle redefine is a cheap fix.} R6 shows that this
+\noindent\textbf{Oracle redefine is a cheap fix.} C4 shows that this
 mismatch is mostly resolvable by training the predictor on a closed-loop
 K-sweep rather than an open-loop one --- no change to the predictor MLP
 or its capacity. The remaining $\delta\!\sim\!17$\,cm gap at zero delay
@@ -547,13 +557,14 @@ future work.
 \smallskip
 
 \noindent\textbf{Behaviour cloning is not a good benchmark for state
-estimation.} R4 shows that, at modest demonstration scale, a behaviour-
-cloned policy improves reaching but consumes state estimates so weakly
-that estimator differences disappear from task metrics. Future closed-loop
-estimator benchmarks should use controllers that are demonstrably
-state-coupled (e.g., the joint-PD+IK family used here); a BC policy that
-generalises poorly per target is effectively open-loop in the state
-channel even though it nominally consumes a state vector.
+estimation.} C2 shows that, at modest demonstration scale, a
+behaviour-cloned policy reaches better than the joint-PD controller but
+consumes state estimates so weakly that estimator differences disappear
+from task metrics. Closed-loop estimator benchmarks should use
+controllers that are demonstrably state-coupled (the joint-PD+IK family
+used here works); a BC policy that generalises poorly per target is
+effectively open-loop in the state channel even though it nominally
+consumes a state vector.
 
 \smallskip
 
@@ -574,18 +585,20 @@ exactly.
 \label{sec:conclusion}
 % ============================================================
 
-We have shown, on a muscle-driven reaching task, that the closed-loop
-optimal Kalman gain depends on both the forward model's accuracy and the
-oracle used to train any learned gain predictor. Single-step supervision
-of the forward model creates a small but real regime where a learned
-condition-level gain beats observation-only (R3, $-8.6$\,cm). Multi-step
-supervision flips the regime: $K{=}0$ becomes globally optimal in closed
-loop (R5). Redefining the predictor's oracle in terms of closed-loop task
-error rather than open-loop estimation accuracy aligns the predictor with
-this new regime and recovers most of the gap (R6) with no architectural
-changes. We argue that learned-Kalman-gain papers should specify the
-oracle target explicitly and that closed-loop benchmarks should be a
-standard part of evaluating adaptive state estimators.
+We have shown on a muscle-driven reaching task that the closed-loop
+optimal Kalman gain depends on both the forward model's accuracy and
+the oracle used to train any learned gain predictor. Single-step
+supervision of the forward model creates a small but real regime where
+a learned condition-level gain beats observation-only by 8.6\,cm at the
+delay-dominated cell (C2). Multi-step supervision flips the regime:
+$K{=}0$ becomes globally optimal in closed loop, with the gap to $K{=}1$
+growing to 12--24\,cm (C3). Redefining the predictor's training oracle
+in terms of closed-loop task error rather than open-loop estimation
+accuracy aligns the predictor with the new regime and recovers most of
+the gap (C4) with no architectural changes. We argue that learned-
+Kalman-gain papers should specify the oracle target explicitly and that
+closed-loop benchmarks should be a standard part of evaluating adaptive
+state estimators.
 
 % ============================================================
 \section*{Acknowledgement}
