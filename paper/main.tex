@@ -16,6 +16,8 @@
 \usepackage{textcomp}
 \usepackage{xcolor}
 \usepackage{url}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,calc,fit,backgrounds}
 \usepackage{hyperref}
 \hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
 
@@ -170,7 +172,77 @@ $12$\,s episode at $\Delta t{=}0.02$\,s (600 control steps). The flat state
 $x\!\in\!\mathbb{R}^{83}$ stacks $q$ (20), $\dot q$ (20), activation
 (34), tip position (3), target (3), and reach error (3). True state is
 extracted from MuJoCo and used only as an oracle for evaluation; the closed
-loop never accesses it.
+loop never accesses it (Fig.\,\ref{fig:system}).
+
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[
+    >={Stealth[length=2mm]},
+    box/.style={draw, rounded corners=2pt, minimum height=10mm,
+                align=center, font=\footnotesize, inner sep=3pt},
+    env/.style={box, fill=gray!12, minimum width=22mm},
+    obs/.style={box, fill=blue!10, minimum width=22mm},
+    est/.style={box, fill=green!12, minimum width=34mm, minimum height=14mm},
+    fwd/.style={box, fill=orange!18, minimum width=28mm, font=\scriptsize,
+                minimum height=9mm},
+    ctl/.style={box, fill=violet!15, minimum width=22mm},
+    eval/.style={box, dashed, fill=red!8, minimum width=28mm,
+                 font=\scriptsize\itshape},
+    label/.style={font=\scriptsize, midway, fill=white, inner sep=1pt},
+    node distance=6mm and 11mm,
+]
+% Main horizontal flow
+\node[env] (env) {MuJoCo /\\MyoSuite};
+\node[obs, right=of env] (obs) {Obs.\ wrappers\\(noise + delay)};
+\node[est, right=of obs] (est) {Kalman estimator\\
+        $\hat x_t {=} x_{\mathrm{pred}} {+} K(y_t {-} x_{\mathrm{pred}})$};
+\node[ctl, right=of est] (ctl) {Controller\\(PD / BC)};
+
+% Forward model below the estimator (slightly offset)
+\node[fwd, below=10mm of est] (fwd) {Forward model $f_\theta$\\(residual MLP)};
+
+% Evaluation-only box -- separate, below env
+\node[eval, below=10mm of env] (eval) {True state $x_t$\\(oracle for eval)};
+
+% Arrows on the main flow
+\draw[->] (env) -- node[label, above]{$x_t$} (obs);
+\draw[->] (obs) -- node[label, above]{$y_t$} (est);
+\draw[->] (est) -- node[label, above]{$\hat x_t$} (ctl);
+
+% Forward-model bidirectional connection with the estimator
+\draw[<-] ($(est.south) + (-9mm,0)$) -- ($(fwd.north) + (-9mm,0)$)
+   node[label, midway, fill=white, right=-0.5mm]{$x_{\mathrm{pred}}$};
+\draw[->] ($(est.south) + (9mm,0)$) -- ($(fwd.north) + (9mm,0)$)
+   node[label, midway, fill=white, right=-0.5mm]{$\hat x_{t-1}, u_{t-1}$};
+
+% Closed-loop action arrow (controller -> env), routed under the figure
+\draw[->, line width=0.8pt, color=violet!70!black]
+    (ctl.south) -- ++(0,-23mm) coordinate (c)
+    -| node[label, near start, below, fill=white]
+        {$u_t$ (muscle excitation in $[0,1]^{34}$)} (env.south);
+
+% Eval arrow (env -> eval box; dashed; oracle, never seen by the loop)
+\draw[->, dashed, gray] (env.south) -- (eval.north)
+   node[label, midway, fill=white]{oracle};
+
+% Background dashed box highlighting "this is the closed loop"
+\begin{scope}[on background layer]
+\node[draw=gray!50, dashed, rounded corners,
+      fit=(env)(obs)(est)(ctl)(fwd),
+      inner sep=4mm,
+      label={[font=\scriptsize\itshape]above:closed loop}] {};
+\end{scope}
+\end{tikzpicture}
+\caption{Closed-loop pipeline. Each step the env's true state $x_t$ is
+filtered through observation wrappers that add per-field Gaussian noise
+and a fixed delay, producing $y_t$. The Kalman estimator combines $y_t$
+with a one-step prediction $x_{\mathrm{pred}}$ produced by the residual-MLP
+forward model $f_\theta(\hat x_{t-1}, u_{t-1})$, weighted by a scalar gain
+$K$. The controller consumes only the estimator output $\hat x_t$ and emits
+the next muscle excitation $u_t$. The true state is exposed only to the
+offline evaluator (dashed red box); the closed loop never accesses it.}
+\label{fig:system}
+\end{figure*}
 
 \subsection{Forward Model}
 A residual MLP $f_\theta(x_t, u_t)$ predicts the state delta
