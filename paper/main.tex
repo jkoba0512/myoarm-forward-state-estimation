@@ -25,7 +25,7 @@
 \graphicspath{{../figures/}}
 
 % Convenience macros for the experiment naming used in the running text.
-\newcommand{\K}[1]{$K{=}#1$}
+% (\K macro previously used for K=value shortcut; removed after notation review)
 \newcommand{\Kvar}{$K^{\star}$}
 \newcommand{\mtip}{\,\text{m}}
 \newcommand{\mTip}{m}
@@ -67,8 +67,8 @@ matters most. \emph{Second}, behaviour-cloned controllers reach the
 target more reliably but consume the estimator output weakly enough
 that the per-cell gap collapses to under 3\,cm, suggesting that
 closed-loop estimator benchmarks need state-coupled controllers.
-\emph{Third}, retraining the forward model with $K$-step rollout
-supervision ($K{\in}\{4,8\}$) reduces $h{=}50$ tip-prediction error by
+\emph{Third}, retraining the forward model with $H$-step rollout
+supervision ($H{\in}\{4,8\}$) reduces $h{=}50$ tip-prediction error by
 54--65\% and shifts the closed-loop optimum to prediction-only
 ($K{=}0$), which now beats $K{=}1$ by 12--24\,cm across the entire
 grid, while the condition-level predictor still outputs
@@ -138,8 +138,8 @@ demonstration set causes the policy to collapse to an open-loop average
 (Fig.\,\ref{fig:F6_tradeoff}); closed-loop estimator benchmarks require
 state-coupled controllers.
 
-\item \textbf{C3.} Retraining the forward model with $K$-step
-rollout supervision ($K{=}4$, then $K{=}8$) cuts $h{=}50$ tip-prediction
+\item \textbf{C3.} Retraining the forward model with $H$-step
+rollout supervision ($H{=}4$, then $H{=}8$) cuts $h{=}50$ tip-prediction
 error by 54--65\% and widens the open-loop $K{<}1$ regime to delay
 $\geq 18$\,steps. In closed loop, however, prediction-only ($K{=}0$)
 becomes the best estimator across our focused joint-PD closed-loop grid
@@ -391,18 +391,23 @@ one-step MSE loss
 \begin{equation}
 \mathcal{L}_1(\theta) = \mathbb{E}_{(x_t,u_t,x_{t+1})}\big[\|f_\theta(x_t,u_t)
 - \Delta x_t\|^2\big].
+\label{eq:L_one_step}
 \end{equation}
 
 \noindent\textbf{Multi-step rollout supervision.} The multi-step
-variant trains $f_\theta$ with a $K$-step rollout loss instead of the
-one-step MSE. For each contiguous trajectory chunk
-$(x_t,u_t,\dots,x_{t+K})$ inside a single source episode, the model is
-unrolled free-running:
+variant trains $f_\theta$ with an $H$-step rollout loss instead of
+the one-step MSE, where $H$ denotes the training rollout horizon
+(distinct from the Kalman gain $K$ defined in
+Sec.\,\ref{sec:method-kalman}). For each contiguous trajectory chunk
+$(x_t,u_t,\dots,x_{t+H})$ inside a single source episode, the model
+is unrolled free-running:
 $\hat x_{t+k} = \hat x_{t+k-1} + f_\theta(\hat x_{t+k-1}, u_{t+k-1})$,
-$\hat x_t = x_t$, and the loss averages MSE across the $K$ prediction steps:
+$\hat x_t = x_t$, and the loss averages MSE across the $H$
+prediction steps:
 \begin{equation}
-\mathcal{L}_K(\theta) = \mathbb{E}\Big[\tfrac{1}{K}\sum_{k=1}^K\|\hat x_{t+k}
+\mathcal{L}_H(\theta) = \mathbb{E}\Big[\tfrac{1}{H}\sum_{k=1}^H\|\hat x_{t+k}
 - x_{t+k}\|^2\Big].
+\label{eq:L_H_step}
 \end{equation}
 Multi-step rollout supervision has been used to stabilise long-horizon
 predictions in latent-imagination world models~\cite{hafner2020dreamer}
@@ -411,11 +416,12 @@ relevant horizon is the planner's rollout depth rather than the
 estimator's delay; we re-use the technique here to make $f_\theta$
 robust across the Kalman buffer.
 
-\noindent We train the same architecture with $K\!\in\!\{1,4,8\}$ on the
+\noindent We train the same architecture with $H\!\in\!\{1,4,8\}$ on the
 same expanded dataset (51\,k transitions across 106 episodes; see
 Sec.\,\ref{sec:results-3.1}).
 
 \subsection{Fixed-Lag Kalman Estimator}
+\label{sec:method-kalman}
 The observation pipeline produces $y_t = h(x_{t-d}) + \eta_t$ where
 $h$ is the identity (the state vector and the observation share the
 same schema), $d\!\in\!\mathbb{Z}_{\geq 0}$ is a fixed delay in
@@ -457,6 +463,7 @@ Kalman gain from a condition feature vector. The input
         d/d_{\max}
       \,\bigr]
       \in \mathbb{R}^{8},
+\label{eq:predictor_input}
 \end{equation}
 concatenates a 3-way controller one-hot $\mathrm{onehot}(c)$, the
 4-dim noise-sigma vector $\sigma$ (\texttt{qpos}, \texttt{qvel},
@@ -495,9 +502,10 @@ estimator.
 A fixed random projection $W\!\in\!\mathbb{R}^{34\times 3}$ (drawn
 once with a fixed seed from $\mathcal{N}(0,1)^{34\times 3}$) maps the
 estimated 3-dim reach-error $\hat r$ to a 34-dim muscle excitation
-through a sigmoid:
+through an element-wise logistic $\mathrm{sigm}(\cdot)$ (distinct from
+the noise scale vector $\sigma$ above):
 \begin{equation}
-u = \sigma\!\left(b - g\,W\,\hat r\right),
+u = \mathrm{sigm}\!\left(b - g\,W\,\hat r\right),
 \quad b{=}0,\ g{=}5,
 \label{eq:heur}
 \end{equation}
@@ -581,7 +589,7 @@ purple marks $K^{\star}{=}1$ (trust the observation); yellow marks
 $K^{\star}{=}0.25$ (trust the model). Under single-step supervision
 (left) the $K^{\star}{<}1$ regime is confined to zero delay
 (18 / 72 cells); multi-step supervision widens it to delay $\geq 6$
-in the high-noise cells (26 / 72 for $K{=}4$, 27 / 72 for $K{=}8$).}
+in the high-noise cells (26 / 72 for $H{=}4$, 27 / 72 for $H{=}8$).}
 \label{fig:F2_oracle}
 \end{figure*}
 
@@ -702,10 +710,10 @@ closed-loop estimator.]%
 controller across four (forward-model supervision, gain-oracle
 choice) variants.} The panels traverse two of the paper's three
 axes: rows (1)$\to$(3) vary forward-model supervision (single-step
-$\to K{=}4 \to K{=}8$ rollout) holding the open-loop oracle
+$\to H{=}4 \to H{=}8$ rollout) holding the open-loop oracle
 $K^{\star}_{\mathrm{ol}}$ fixed; row~(4) flips the oracle from
 $K^{\star}_{\mathrm{ol}}$ to $K^{\star}_{\mathrm{cl}}$ holding the
-$K{=}8$ forward model fixed; the third axis (controller coupling) is
+$H{=}8$ forward model fixed; the third axis (controller coupling) is
 held constant at joint-PD here and varied in
 Fig.\,\ref{fig:F6_tradeoff}. Each panel reports mean $\pm$ standard
 deviation over 10 episodes per cell for three estimators: $K{=}0$
@@ -713,29 +721,29 @@ deviation over 10 episodes per cell for three estimators: $K{=}0$
 learned condition-level predictor $g_\phi$ (green). The dashed
 horizontal line marks the 5\,cm reach threshold. (1)~Single-step-
 supervised forward model: $K{=}0$ diverges in some cells, the
-learned predictor sits near $K{=}1$. (2)~$K{=}4$ multi-step
-supervision: $K{=}0$ becomes competitive. (3)~$K{=}8$ multi-step:
+learned predictor sits near $K{=}1$. (2)~$H{=}4$ multi-step
+supervision: $K{=}0$ becomes competitive. (3)~$H{=}8$ multi-step:
 $K{=}0$ is best in every cell while the learned predictor still
 tracks $K{=}1$ because its open-loop oracle never selected $K{=}0$.
-(4)~Same $K{=}8$ forward model, but $g_\phi$ retrained against
+(4)~Same $H{=}8$ forward model, but $g_\phi$ retrained against
 $K^{\star}_{\mathrm{cl}}$ (Sec.\,\ref{sec:results-3.6}): the green
 learned bar now matches the orange $K{=}0$ bar at the three
 delay-18 cells, closing 40--60\,\% of the gap at the delay-0 cells.}
 \label{fig:F7_paradigm}
 \end{figure*}
 
-Retraining the forward model with $K$-step rollout supervision
-$\mathcal{L}_K$ drops $h{=}50$ tip prediction error to 0.064\,m
-($K{=}4$, $-54\%$ vs.\ baseline) and 0.048\,m ($K{=}8$, $-65\%$). The
+Retraining the forward model with $H$-step rollout supervision
+$\mathcal{L}_H$ drops $h{=}50$ tip prediction error to 0.064\,m
+($H{=}4$, $-54\%$ vs.\ baseline) and 0.048\,m ($H{=}8$, $-65\%$). The
 open-loop oracle then expands the $K^{\star}{<}1$ regime from 18 to 26
-($K{=}4$) and 27 ($K{=}8$) of 72 cells; blending becomes optimal at delay
-$\geq 6$\,steps in high-noise cells
+($H{=}4$) and 27 ($H{=}8$) of 72 cells; blending becomes optimal at
+delay $\geq 6$\,steps in high-noise cells
 (Fig.\,\ref{fig:F2_oracle}, middle and right panels).
 
-In \emph{closed loop} the picture is opposite: under both $K{=}4$ and
-$K{=}8$, $K{=}0$ becomes the best estimator across all 6 cells of the
-focused grid, with $\min$-tip dropping to $\sim 0.53$\,m ($K{=}4$) and
-$\sim 0.49$\,m ($K{=}8$) versus $K{=}1$ at 0.66--0.77\,m. Notably $K{=}1$
+In \emph{closed loop} the picture is opposite: under both $H{=}4$ and
+$H{=}8$, $K{=}0$ becomes the best estimator across all 6 cells of the
+focused grid, with $\min$-tip dropping to $\sim 0.53$\,m ($H{=}4$) and
+$\sim 0.49$\,m ($H{=}8$) versus $K{=}1$ at 0.66--0.77\,m. Notably $K{=}1$
 \emph{worsens} from 0.60 to 0.70\,m as multi-step supervision strengthens
 at delay-18 cells: a stronger forward model makes the observation
 correction it is being asked to apply less compatible with the planned
@@ -744,7 +752,7 @@ trajectory.
 The condition-level learned predictor, however, keeps outputting
 $K\!\approx\!0.36$--$0.99$ (Fig.\,\ref{fig:F7_paradigm}, panels 2--3)
 because the open-loop oracle it was trained on never picks $K{=}0$ --- at
-delay $\geq 18$ even with $K{=}8$ supervision, the open-loop oracle still
+delay $\geq 18$ even with $H{=}8$ supervision, the open-loop oracle still
 selects $K^{\star}{=}1$ or close to it (the open-loop estimation error is
 minimised by trusting the observation when the buffer rollout is long).
 The optimum gap thus widens, not closes, with supervision strength.
@@ -753,7 +761,7 @@ The optimum gap thus widens, not closes, with supervision strength.
 \label{sec:results-3.6}
 
 We address the gap by changing only the oracle definition. Under the
-$K{=}8$ forward model we sweep $K\!\in\!\{0,0.25,0.5,0.75,1.0\}$ in
+$H{=}8$ forward model we sweep $K\!\in\!\{0,0.25,0.5,0.75,1.0\}$ in
 closed loop on the same 6 cells and pick $K^{\star}_{\text{cl}}$ per cell
 by minimising closed-loop $\min$-tip error. The result is unanimous:
 $K^{\star}_{\text{cl}}{=}0$ in every cell. We retrain the same MLP
@@ -902,7 +910,7 @@ are listed verbatim in \texttt{configs/estimators/} and
   & val split & every 5th source episode \\
 \midrule
 Multi-step loss
-  & $K$ values tested & 1, 4, 8 \\
+  & rollout horizon $H$ & 1, 4, 8 \\
 \midrule
 \multirow{4}{*}{Stage A $g_\phi$}
   & input dim & 8 = 3 ctrl + 4 $\sigma$ + 1 delay/$d_{\max}$ \\
@@ -958,7 +966,7 @@ paying a small cost at $h{=}1$.
 \caption{Forward-model rollout MSE and tip prediction error on the
 held-out validation episodes. Lower is better. All three models share
 the same architecture and training set (51{,}534 transitions across
-106 episodes); they differ only in the multi-step value $K$.}
+106 episodes); they differ only in the rollout horizon $H$.}
 \label{tab:fwd_rollout}
 \setlength{\tabcolsep}{4pt}
 \footnotesize
@@ -968,9 +976,9 @@ the same architecture and training set (51{,}534 transitions across
 \cmidrule(lr){2-4}\cmidrule(lr){5-7}
 Model & $h{=}1$ & $h{=}10$ & $h{=}50$ & $h{=}1$ & $h{=}10$ & $h{=}50$ \\
 \midrule
-$K{=}1$ (single-step) & 0.0055 & 0.0124 & 0.0524 & 0.0076 & 0.0355 & 0.1381 \\
-$K{=}4$ multi-step    & 0.0053 & 0.0084 & 0.0164 & 0.0088 & 0.0247 & 0.0635 \\
-$K{=}8$ multi-step    & 0.0055 & 0.0082 & 0.0114 & 0.0098 & 0.0215 & 0.0483 \\
+$H{=}1$ (single-step) & 0.0055 & 0.0124 & 0.0524 & 0.0076 & 0.0355 & 0.1381 \\
+$H{=}4$ multi-step    & 0.0053 & 0.0084 & 0.0164 & 0.0088 & 0.0247 & 0.0635 \\
+$H{=}8$ multi-step    & 0.0055 & 0.0082 & 0.0114 & 0.0098 & 0.0215 & 0.0483 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -979,15 +987,15 @@ $K{=}8$ multi-step    & 0.0055 & 0.0082 & 0.0114 & 0.0098 & 0.0215 & 0.0483 \\
 \label{app:oracle-grids}
 
 Table~\ref{tab:oracle_K8} reports the mean oracle $K^{\star}$ per
-(delay, noise) cell under the $K{=}8$ multi-step-supervised forward
-model (used by Sec.\,\ref{sec:results-3.5}/3.6). The $K{=}4$ and
+(delay, noise) cell under the $H{=}8$ multi-step-supervised forward
+model (used by Sec.\,\ref{sec:results-3.5}/3.6). The $H{=}4$ and
 single-step matrices appear in Fig.\,\ref{fig:F2_oracle} of the main
 text.
 
 \begin{table}[!htbp]
 \centering
 \caption{Oracle Kalman gain $K^{\star}$ as a function of delay and
-noise under the $K{=}8$ multi-step-supervised forward model
+noise under the $H{=}8$ multi-step-supervised forward model
 (mean over 3 controllers; 72 conditions total). 27 of 72 cells
 require $K^{\star}{<}1$.}
 \label{tab:oracle_K8}
@@ -1011,8 +1019,8 @@ delay & none & low & medium & high & vhigh & xhigh \\
 
 Table~\ref{tab:closed_K_sweep} reports the closed-loop $\min$-tip-to-
 target error per cell as a function of the (fixed) Kalman gain $K$,
-under the $K{=}8$ forward model and the joint-PD controller (10
-episodes per cell). The K-sweep is the basis of the closed-loop
+under the $H{=}8$ forward model and the joint-PD controller (10
+episodes per cell). The $K$-sweep is the basis of the closed-loop
 oracle $K^{\star}_{\mathrm{cl}}$ defined in Sec.\,\ref{sec:results-3.6}.
 $K^{\star}_{\mathrm{cl}}{=}0$ in every cell.
 
@@ -1029,7 +1037,7 @@ the same predictor matches the $K{=}0$ baseline within 1.5\,cm.
 \begin{table}[!htbp]
 \centering
 \caption{Closed-loop $\min$-tip error (m) per cell across the
-$K$-sweep under the $K{=}8$ forward model and the joint-PD
+$K$-sweep under the $H{=}8$ forward model and the joint-PD
 controller. Each cell averages 10 episodes. Bold marks the per-cell
 minimum.}
 \label{tab:closed_K_sweep}
