@@ -366,9 +366,16 @@ it.}
 
 \subsection{Forward Model}
 A residual MLP $f_\theta(x_t, u_t)$ predicts the state delta
-$\Delta x_t {=} x_{t+1}-x_t$ from a flat 83-dim state and 34-dim excitation
-input. Architecture: two hidden layers of 256 units with ReLU and
-LayerNorm. The model is optimised with Adam \cite{kingma2015adam}.
+$\Delta x_t {=} x_{t+1}-x_t$ rather than $x_{t+1}$ directly. At
+$\Delta t{=}0.02$\,s the state changes slowly, so $x_{t+1}\!\approx\!x_t$
+component-wise; predicting $\Delta x$ frees the model from re-learning
+the identity map and concentrates capacity on the small per-step
+dynamics that the filter and controller actually consume. The
+parameterisation is standard in model-based RL world
+models~\cite{hafner2020dreamer,janner2019mbpo}. The input is the flat
+83-dim state and the 34-dim excitation; the architecture is two hidden
+layers of 256 units with ReLU and LayerNorm; training uses
+Adam~\cite{kingma2015adam}.
 In the single-step baseline, $f_\theta$ is trained on the standard
 one-step MSE loss
 \begin{equation}
