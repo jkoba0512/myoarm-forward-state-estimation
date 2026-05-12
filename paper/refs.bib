@@ -1,27 +1,158 @@
-% References for the TNNLS draft. v0 placeholders -- fill in citations in a
-% later pass. Keys prefixed TODO_ are signalled with \cite{TODO_*} in main.tex.
+% References for the TNNLS draft. All entries verified via web search on
+% 2026-05-12. Citation keys are stable.
 
-@misc{TODO_kalman_classic,
-  title  = {Kalman filtering -- classical reference (placeholder)},
-  author = {{TBD}},
-  year   = {1960},
+% --- Kalman filter foundations ----------------------------------------------
+
+@article{kalman1960,
+  title   = {A New Approach to Linear Filtering and Prediction Problems},
+  author  = {Kalman, R. E.},
+  journal = {Transactions of the ASME--Journal of Basic Engineering},
+  volume  = {82},
+  number  = {1},
+  pages   = {35--45},
+  year    = {1960},
+  month   = mar,
+  doi     = {10.1115/1.3662552},
 }
 
-@misc{TODO_adaptive_kf,
-  title  = {Adaptive Kalman filtering survey (placeholder)},
-  author = {{TBD}},
-  year   = {2010},
+@article{rauch1965,
+  title   = {Maximum Likelihood Estimates of Linear Dynamic Systems},
+  author  = {Rauch, H. E. and Tung, F. and Striebel, C. T.},
+  journal = {AIAA Journal},
+  volume  = {3},
+  number  = {8},
+  pages   = {1445--1450},
+  year    = {1965},
+  month   = aug,
+  doi     = {10.2514/3.3166},
 }
 
-@misc{TODO_kalman_delay,
-  title  = {Fixed-lag Kalman smoother for delayed observations (placeholder)},
-  author = {{TBD}},
-  year   = {2005},
+@article{mehra1970,
+  title   = {On the Identification of Variances and Adaptive {Kalman} Filtering},
+  author  = {Mehra, R. K.},
+  journal = {IEEE Transactions on Automatic Control},
+  volume  = {15},
+  number  = {2},
+  pages   = {175--184},
+  year    = {1970},
+  month   = apr,
+  doi     = {10.1109/TAC.1970.1099422},
 }
 
-@misc{TODO_myosuite,
-  title  = {MyoSuite -- a contact-rich musculoskeletal simulation suite (placeholder)},
-  author = {Caggiano, V. and Wang, H. and Durandau, G. and Sartori, M. and Kumar, V.},
-  year   = {2022},
-  note   = {L4DC 2019 / GitHub},
+@book{anderson1979optimal,
+  title     = {Optimal Filtering},
+  author    = {Anderson, Brian D. O. and Moore, John B.},
+  publisher = {Prentice-Hall},
+  address   = {Englewood Cliffs, NJ},
+  year      = {1979},
+  isbn      = {0136381227},
+  note      = {Republished by Dover, 2005.},
+}
+
+% --- Motor control / forward models ----------------------------------------
+
+@book{bernstein1967,
+  title     = {The Coordination and Regulation of Movements},
+  author    = {Bernstein, Nikolai A.},
+  publisher = {Pergamon Press},
+  address   = {Oxford},
+  year      = {1967},
+}
+
+@article{wolpert2000,
+  title   = {Computational Principles of Movement Neuroscience},
+  author  = {Wolpert, Daniel M. and Ghahramani, Zoubin},
+  journal = {Nature Neuroscience},
+  volume  = {3},
+  number  = {11},
+  pages   = {1212--1217},
+  year    = {2000},
+  month   = nov,
+  doi     = {10.1038/81497},
+}
+
+% --- Physics simulation -----------------------------------------------------
+
+@inproceedings{todorov2012mujoco,
+  title     = {{MuJoCo}: A physics engine for model-based control},
+  author    = {Todorov, Emanuel and Erez, Tom and Tassa, Yuval},
+  booktitle = {Proc.\ IEEE/RSJ Int.\ Conf.\ Intelligent Robots and Systems (IROS)},
+  pages     = {5026--5033},
+  year      = {2012},
+  doi       = {10.1109/IROS.2012.6386109},
+}
+
+@inproceedings{caggiano2022myosuite,
+  title     = {{MyoSuite} -- A contact-rich simulation suite for musculoskeletal motor control},
+  author    = {Caggiano, Vittorio and Wang, Huawei and Durandau, Guillaume and
+               Sartori, Massimo and Kumar, Vikash},
+  booktitle = {Proc.\ 4th Annual Learning for Dynamics and Control Conference (L4DC)},
+  series    = {Proceedings of Machine Learning Research},
+  volume    = {168},
+  year      = {2022},
+  publisher = {PMLR},
+  url       = {https://proceedings.mlr.press/v168/caggiano22a.html},
+  eprint    = {2205.13600},
+  archivePrefix = {arXiv},
+}
+
+% --- Imitation / behaviour cloning -----------------------------------------
+
+@inproceedings{pomerleau1988alvinn,
+  title     = {{ALVINN}: An Autonomous Land Vehicle in a Neural Network},
+  author    = {Pomerleau, Dean A.},
+  booktitle = {Advances in Neural Information Processing Systems},
+  volume    = {1},
+  year      = {1988},
+  publisher = {Morgan Kaufmann},
+  url       = {https://proceedings.neurips.cc/paper/1988/hash/812b4ba287f5ee0bc9d43bbf5bbe87fb-Abstract.html},
+}
+
+@inproceedings{ross2011dagger,
+  title     = {A Reduction of Imitation Learning and Structured Prediction to No-Regret Online Learning},
+  author    = {Ross, St{\'e}phane and Gordon, Geoffrey J. and Bagnell, J. Andrew},
+  booktitle = {Proc.\ 14th Int.\ Conf.\ Artificial Intelligence and Statistics (AISTATS)},
+  series    = {Proceedings of Machine Learning Research},
+  volume    = {15},
+  pages     = {627--635},
+  year      = {2011},
+  publisher = {PMLR},
+  url       = {https://proceedings.mlr.press/v15/ross11a.html},
+  eprint    = {1011.0686},
+  archivePrefix = {arXiv},
+}
+
+% --- World models / multi-step rollout supervision --------------------------
+
+@inproceedings{hafner2020dreamer,
+  title     = {Dream to Control: Learning Behaviors by Latent Imagination},
+  author    = {Hafner, Danijar and Lillicrap, Timothy and Ba, Jimmy and Norouzi, Mohammad},
+  booktitle = {Proc.\ Int.\ Conf.\ Learning Representations (ICLR)},
+  year      = {2020},
+  eprint    = {1912.01603},
+  archivePrefix = {arXiv},
+  url       = {https://arxiv.org/abs/1912.01603},
+}
+
+@inproceedings{janner2019mbpo,
+  title     = {When to Trust Your Model: Model-Based Policy Optimization},
+  author    = {Janner, Michael and Fu, Justin and Zhang, Marvin and Levine, Sergey},
+  booktitle = {Advances in Neural Information Processing Systems},
+  volume    = {32},
+  year      = {2019},
+  eprint    = {1906.08253},
+  archivePrefix = {arXiv},
+  url       = {https://proceedings.neurips.cc/paper/2019/hash/5faf461eff3099671ad63c6f3f094f7f-Abstract.html},
+}
+
+% --- Optimization -----------------------------------------------------------
+
+@inproceedings{kingma2015adam,
+  title     = {Adam: A Method for Stochastic Optimization},
+  author    = {Kingma, Diederik P. and Ba, Jimmy},
+  booktitle = {Proc.\ 3rd Int.\ Conf.\ Learning Representations (ICLR)},
+  year      = {2015},
+  eprint    = {1412.6980},
+  archivePrefix = {arXiv},
+  url       = {https://arxiv.org/abs/1412.6980},
 }

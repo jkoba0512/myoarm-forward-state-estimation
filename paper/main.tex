@@ -88,13 +88,17 @@ common engineering response is the Kalman filter, which blends a forward
 model's prediction with the current observation via a gain $K\!\in\![0,1]$:
 $K{=}0$ trusts the model, $K{=}1$ trusts the sensor, and the literature on
 adaptive Kalman filters has produced many ways to choose $K$ from the
-estimated noise covariance \cite{TODO_kalman_classic,TODO_adaptive_kf}.
+estimated noise covariance \cite{kalman1960,mehra1970,anderson1979optimal}.
+The internal-model view of biological motor control casts the same
+relationship as a forward-model / sensory-feedback combination
+\cite{bernstein1967,wolpert2000}.
 In this paper we ask a different question: \emph{what does the optimal $K$
 look like in closed loop, and does the way we train a learned $K$-predictor
 match it?}
 
 We attack the question on a 34-muscle MyoSuite reaching arm
-\cite{TODO_myosuite}. We learn a residual-MLP forward model from rollouts,
+\cite{caggiano2022myosuite} running in the MuJoCo simulator
+\cite{todorov2012mujoco}. We learn a residual-MLP forward model from rollouts,
 use it inside a fixed-lag Kalman filter that handles a configurable
 observation delay (\K{0}--$K{=}36$\,steps) and configurable per-field
 Gaussian noise, sweep a $K{\in}\{0,0.25,0.5,0.75,1.0\}$ grid across noise
@@ -172,7 +176,8 @@ loop never accesses it.
 A residual MLP $f_\theta(x_t, u_t)$ predicts the state delta
 $\Delta x_t {=} x_{t+1}-x_t$ from a flat 83-dim state and 34-dim excitation
 input. Architecture: two hidden layers of 256 units with ReLU and
-LayerNorm. For the Phase~0 baseline, $f_\theta$ is trained on the standard
+LayerNorm. The model is optimised with Adam \cite{kingma2015adam}.
+For the Phase~0 baseline, $f_\theta$ is trained on the standard
 single-step MSE loss
 \begin{equation}
 \mathcal{L}_1(\theta) = \mathbb{E}_{(x_t,u_t,x_{t+1})}\big[\|f_\theta(x_t,u_t)
@@ -189,6 +194,12 @@ $\hat x_t = x_t$, and the loss averages MSE across the $K$ prediction steps:
 \mathcal{L}_K(\theta) = \mathbb{E}\Big[\tfrac{1}{K}\sum_{k=1}^K\|\hat x_{t+k}
 - x_{t+k}\|^2\Big].
 \end{equation}
+Multi-step rollout supervision has been used to stabilise long-horizon
+predictions in latent-imagination world models~\cite{hafner2020dreamer}
+and in model-based policy optimisation~\cite{janner2019mbpo}, where the
+relevant horizon is the planner's rollout depth rather than the
+estimator's delay; we re-use the technique here to make $f_\theta$
+robust across the Kalman buffer.
 
 \noindent We train the same architecture with $K\!\in\!\{1,4,8\}$ on the
 same expanded dataset (51\,k transitions across 106 episodes; see
@@ -201,7 +212,8 @@ actions. At each step we form an inn ovation against the buffer's leftmost
 entry (representing $\hat x_{t-d}$), apply gain $K$ element-wise, and roll
 the corrected estimate forward through the cached actions to obtain the
 present estimate. A scalar $K\!\in\![0,1]$ is shared across all 83 fields.
-Implementation details follow \cite{TODO_kalman_delay}.
+The fixed-lag handling follows the standard buffered Rauch--Tung--Striebel
+construction \cite{rauch1965,anderson1979optimal}.
 
 \subsection{Learned Gain (Stage~A)}
 A small MLP $g_\phi:\mathbb{R}^{8}\!\to\![0,1]$ maps a condition feature
@@ -226,7 +238,10 @@ mapping
 $u_{\text{muscle}} {=} \mathrm{clip}(\alpha\,\mathrm{ReLU}
 (M\,u_{\text{joint}}), 0, 1)$;
 and (iii)~a small behaviour-cloned MLP trained on a 30-episode scripted
-IK demonstration dataset. Tuned gains:
+IK demonstration dataset in the spirit of~\cite{pomerleau1988alvinn};
+we do not iterate the demonstrator with DAgger~\cite{ross2011dagger} in
+this work and discuss the resulting open-loop collapse in
+Sec.\,\ref{sec:results-3.4}. Tuned gains:
 $K_p{=}30$, $K_d{=}3$, $\alpha{=}5$.
 
 \subsection{Evaluation Pipeline}
