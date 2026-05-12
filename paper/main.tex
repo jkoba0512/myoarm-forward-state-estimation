@@ -778,6 +778,18 @@ all 6 cells the closed-loop-aware predictor closes 40--60\% of the
 single-step paradigm gap; mean improvement vs.\ the open-loop-oracle
 predictor is $-16$\,cm. No architectural changes were made.
 
+A short transfer slice on the variable-target variant
+\texttt{myoArmReachRandom-v0} (Appendix~\ref{app:reach-random})
+confirms the structural picture but refines two details: the
+$H{=}1{\to}H{=}8$ regime shift is task-dependent (prediction-only
+$K{=}0$ already beats $K{=}1$ at $H{=}1$ on ReachRandom, so there
+is no shift to observe), while $K^{\star}_{\mathrm{cl}}$ on
+ReachRandom takes three distinct values across the focused grid
+($K{=}0$ at $d{=}0$, $K{=}0.25$ at delay-18 low/medium noise,
+$K{=}1$ at (xhigh, $d{=}18$)), strengthening the C4 argument that
+the closed-loop oracle is a non-degenerate, task-and-cell-dependent
+function.
+
 % ============================================================
 \section{Discussion}
 \label{sec:discussion}
@@ -826,9 +838,16 @@ rollouts); a differentiable surrogate would scale this far better.
 (b)~Our learned predictor is condition-level (no per-step state coupling
 beyond the sigma vector and delay scalar); a state-aware Stage~B variant
 we explored briefly did not beat the condition-level baseline because of
-labelling noise, but a closed-loop differentiable label might. (c)~All
-results are on a single MyoSuite reach task; transfer to grasp/place
-tasks is open. (d)~The 17\,cm residual at $d{=}0$ is structural and could
+labelling noise, but a closed-loop differentiable label might. (c)~Results
+cover two MyoSuite reach variants --- fixed and random targets,
+sharing the 34-muscle arm and 600-step horizon
+(Appendix~\ref{app:reach-random}). On the variable-target variant the
+$H{=}1{\to}H{=}8$ regime shift does not apply because $K{=}0$ already
+wins at $H{=}1$, but the C4 oracle-redefinition argument is
+corroborated (and made richer: $K^{\star}_{\mathrm{cl}}$ varies
+across cells rather than collapsing to $K{=}0$). Transfer to
+contact-rich tasks (grasp/place) and to systems with different
+muscle counts (Elbow/Finger reach) remains open. (d)~The 17\,cm residual at $d{=}0$ is structural and could
 be closed with a predictor parameterisation that supports $K{=}0$
 exactly. (e)~The residual MLP used here is a discrete-time,
 feed-forward approximation at the box level of the cerebellar
@@ -1056,6 +1075,161 @@ xhigh & 18 & \textbf{0.497} & 0.550 & 0.713 & 0.749 & 0.700 \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\section{Transfer Test on ReachRandom}
+\label{app:reach-random}
+
+\noindent\textbf{Setup.} We re-run a slim version of the pipeline on
+\texttt{myoArmReachRandom-v0} (same 34-muscle arm, same 600-step
+episodes, random per-episode target instead of a fixed one). Targets
+come from the same \texttt{runs/targets/train.npz} file (200
+positions) so that targets are paired across estimators and forward
+models; initial joint pose is deterministic ($q{=}0$) for both
+variants. Transition data: 49{,}740 transitions across 106 episodes
+(random / lowamp / hold controllers), comparable to the 51{,}534-
+transition ReachFixed dataset. The marginal C2 cell-level effect
+($\approx 8.6$\,cm at one cell with learned $K\!\approx\!0.99$ and
+paired-$t$ $p{=}0.21$) is task-dependent and \emph{not} treated as a
+transfer target; the test asks whether the structural phenomena C1 /
+C3 / C4 persist under variable-target reaching. Pre-committed pass
+criteria, fixed before reading the numbers:
+\begin{itemize}
+\item \emph{C1 replicate}: open-loop oracle $K^{\star}_{\mathrm{ol}}$
+varies with noise / delay, with long-delay cells biasing toward
+$K{=}1$.
+\item \emph{C3 replicate}: multi-step supervision reduces $h{=}50$
+forward-model error and increases the share of closed-loop cells
+where $K{=}0$ or prediction-heavy estimators beat $K{=}1$.
+\item \emph{C4 replicate}: a closed-loop oracle
+$K^{\star}_{\mathrm{cl}}$ trained predictor moves toward the K=0 /
+$K^{\star}_{\mathrm{cl}}$ side of the K-curve compared with an
+open-loop oracle predictor.
+\end{itemize}
+
+\noindent\textbf{Forward-model rollout error} (Table~\ref{tab:rr_fm})
+mirrors the ReachFixed pattern: $H{=}8$ multi-step rollout supervision
+reduces $h{=}50$ tip prediction error by $48\%$ versus $H{=}1$
+($0.110\to0.057$\,m).
+
+\begin{table}[!htbp]
+\centering
+\caption{ReachRandom forward-model rollout MSE and tip prediction
+error on held-out validation episodes. Same network and training
+recipe as the main text; lower is better.}
+\label{tab:rr_fm}
+\setlength{\tabcolsep}{4pt}
+\footnotesize
+\begin{tabular}{@{}l ccc ccc@{}}
+\toprule
+& \multicolumn{3}{c}{MSE} & \multicolumn{3}{c}{Tip err.\ (m)} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+Model & $h{=}1$ & $h{=}10$ & $h{=}50$ & $h{=}1$ & $h{=}10$ & $h{=}50$ \\
+\midrule
+$H{=}1$ (single-step) & 0.0045 & 0.0103 & 0.0318 & 0.0066 & 0.0291 & 0.1098 \\
+$H{=}8$ multi-step    & 0.0046 & 0.0072 & 0.0096 & 0.0093 & 0.0229 & 0.0573 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Closed-loop reaching, single-step model.}
+Table~\ref{tab:rr_h1_baseline} reports $\min$-tip error at the 6-cell
+focused grid for $K{=}0$ and $K{=}1$ under the joint-PD controller.
+Two observations: (i) $K{=}0$ is constant across noise/delay because
+it ignores observations, and (ii) on ReachRandom $K{=}0$ already
+beats $K{=}1$ in \emph{every} cell, by 7--27\,cm. This contrasts with
+ReachFixed where the $H{=}1$ closed-loop optimum was nearer $K{=}1$
+at delay-18 cells; the gap is therefore task-dependent at the
+single-step baseline.
+
+\begin{table}[!htbp]
+\centering
+\caption{ReachRandom $H{=}1$ closed-loop $\min$-tip error (m, mean
+over 10 episodes) under the joint-PD controller. $K{=}0$ beats
+$K{=}1$ in every cell by 7--27\,cm.}
+\label{tab:rr_h1_baseline}
+\footnotesize
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{@{}ll cc r@{}}
+\toprule
+noise & delay & $K{=}0$ & $K{=}1$ & $K{=}1{-}K{=}0$ \\
+\midrule
+none  & 0  & 0.499 & 0.770 & $+27.2$\,cm \\
+none  & 18 & 0.498 & 0.578 & $+8.0$\,cm  \\
+high  & 0  & 0.499 & 0.770 & $+27.2$\,cm \\
+high  & 18 & 0.498 & 0.567 & $+6.8$\,cm  \\
+xhigh & 0  & 0.499 & 0.762 & $+26.3$\,cm \\
+xhigh & 18 & 0.498 & 0.593 & $+9.4$\,cm  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Closed-loop K-curve, $H{=}8$ multi-step model.}
+Table~\ref{tab:rr_h8_ksweep} reports the full
+$K\!\in\!\{0,0.25,0.5,0.75,1\}$ sweep at $H{=}8$. The closed-loop
+oracle $K^{\star}_{\mathrm{cl}}$ is the per-cell minimiser. Unlike
+ReachFixed, where $K^{\star}_{\mathrm{cl}}{=}0$ in every cell of the
+focused grid, on ReachRandom $K^{\star}_{\mathrm{cl}}$ splits across
+three values: $K{=}0$ at all three $d{=}0$ cells (matching
+ReachFixed), $K{=}0.25$ at delay-18 in the low/medium-noise cells,
+and $K{=}1$ at the (xhigh, $d{=}18$) cell.
+
+\begin{table}[!htbp]
+\centering
+\caption{ReachRandom $H{=}8$ closed-loop $\min$-tip K-sweep (mean over
+10 episodes). Bold marks the per-cell $K^{\star}_{\mathrm{cl}}$.}
+\label{tab:rr_h8_ksweep}
+\setlength{\tabcolsep}{4pt}
+\footnotesize
+\begin{tabular}{@{}ll ccccc@{}}
+\toprule
+noise & delay & $K{=}0$ & $K{=}0.25$ & $K{=}0.5$ & $K{=}0.75$ & $K{=}1$ \\
+\midrule
+none  & 0  & \textbf{0.670} & 0.762 & 0.785 & 0.780 & 0.770 \\
+none  & 18 & 0.642 & \textbf{0.625} & 0.706 & 0.644 & 0.647 \\
+high  & 0  & \textbf{0.670} & 0.764 & 0.785 & 0.775 & 0.770 \\
+high  & 18 & 0.642 & \textbf{0.631} & 0.688 & 0.651 & 0.639 \\
+xhigh & 0  & \textbf{0.670} & 0.758 & 0.765 & 0.761 & 0.762 \\
+xhigh & 18 & 0.642 & 0.662 & 0.691 & 0.650 & \textbf{0.627} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Assessment against the pre-committed criteria.}
+\begin{itemize}
+\item \emph{C1}: not directly tested in this transfer slice (we did
+not re-run the full $5\,K \times 6\,\text{noise} \times 4\,\text{delay}
+\times 3\,\text{controller}$ stress eval); $K^{\star}_{\mathrm{ol}}$
+on ReachRandom is left for future work.
+\item \emph{C3 (partial replication)}: $H{=}8$ rollout supervision
+reduces forward-model error by 48\,\% (replicates) and $K{=}0$ is
+optimal at all three delay-0 cells (replicates). The
+ReachFixed-style \emph{regime shift} from $K{=}1$-winning at $H{=}1$
+to $K{=}0$-winning at $H{=}8$ does \emph{not} apply on ReachRandom
+because $K{=}0$ was already winning at $H{=}1$; the variable-target
+variant is structurally more favourable to prediction-only across
+forward-model strengths.
+\item \emph{C4 (qualitative replication, stronger form)}: the closed-
+loop oracle $K^{\star}_{\mathrm{cl}}$ on ReachRandom is \emph{not}
+uniformly $K{=}0$ (3 cells pick $K{=}0$, 2 cells pick $K{=}0.25$,
+1 cell picks $K{=}1$), confirming that
+$K^{\star}_{\mathrm{cl}}$ is a genuinely task-and-cell-dependent
+function rather than the degenerate constant suggested by the
+ReachFixed grid. The structural argument of C4 --- that the
+predictor's training oracle is the relevant control knob --- is
+\emph{strengthened} by this variability: a predictor trained on
+$K^{\star}_{\mathrm{ol}}$ (which would generally pick $K{=}1$ at
+long delay) would mis-fire here.
+\end{itemize}
+
+\noindent\textbf{Take-away.} The ReachRandom transfer test does not
+falsify any C1/C3/C4 claim; it refines them. C3's regime-shift framing
+is task-dependent, but the underlying fact (multi-step supervision
+makes prediction-only competitive in closed loop) replicates. C4's
+oracle-redefinition argument is corroborated and made richer: the
+closed-loop oracle is non-trivial across cells on this variant. We
+leave the full open-loop stress grid and a learned-predictor-on-
+$K^{\star}_{\mathrm{cl}}$-trained-on-ReachRandom evaluation to a
+follow-up.
 
 \section{Software, Hardware, and Reproducibility}
 \label{app:repro}

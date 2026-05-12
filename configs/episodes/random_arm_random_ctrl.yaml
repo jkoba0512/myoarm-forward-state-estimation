@@ -1,0 +1,28 @@
+# Episode collection on myoArmReachRandom-v0 with the random controller.
+# Mirrors the ReachFixed random run that contributed to runs/datasets/
+# expanded.npz, but on the random-target variant for the C3/C4 transfer
+# test.
+
+env_id: myoArmReachRandom-v0
+target_set: runs/targets/train.npz
+
+controller:
+  name: random
+  mean: 0.5
+  sigma: 0.2
+
+master_seed: 0
+
+sdn:
+  sigma: 0.0
+
+obs_noise:
+  sigma: {}
+
+obs_delay_steps: 0
+obs_compose: noisy_then_delayed
+
+max_steps: 600
+n_episodes: 50
+
+output_root: runs/episodes

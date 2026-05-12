@@ -1,0 +1,27 @@
+# Low-amplitude random excitation preset, on myoArmReachRandom-v0.
+# Mirrors configs/episodes/lowamp_random.yaml for the ReachRandom
+# transfer test.
+
+env_id: myoArmReachRandom-v0
+target_set: runs/targets/train.npz
+
+controller:
+  name: random
+  mean: 0.5
+  sigma: 0.05
+
+master_seed: 0
+
+sdn:
+  sigma: 0.0
+
+obs_noise:
+  sigma: {}
+
+obs_delay_steps: 0
+obs_compose: noisy_then_delayed
+
+max_steps: 600
+n_episodes: 50
+
+output_root: runs/episodes

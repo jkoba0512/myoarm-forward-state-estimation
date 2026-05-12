@@ -1,0 +1,53 @@
+# ReachRandom transfer test, panel 4 of F7-equivalent:
+# H=8 forward model + closed-loop oracle Stage A predictor (the
+# central oracle-redefinition result of the paper, applied to a
+# different task).
+
+seed: 0
+
+env_id: myoArmReachRandom-v0
+horizon: 600
+
+forward_model: runs/models/RANDOM_ARM_H8_PLACEHOLDER
+
+target_set: runs/targets/train.npz
+episodes_per_cell: 10
+
+obs_compose: noisy_then_delayed
+
+noise_conditions:
+  none:    { qpos: 0.0,   qvel: 0.0,   tip_pos: 0.0,    reach_err: 0.0 }
+  high:    { qpos: 0.02,  qvel: 0.02,  tip_pos: 0.01,   reach_err: 0.01 }
+  xhigh:   { qpos: 0.08,  qvel: 0.08,  tip_pos: 0.04,   reach_err: 0.04 }
+
+delay_grid: [0, 18]
+
+estimators:
+  - name: K=0.0
+    kind: fixed
+    gain: 0.0
+  - name: K=1.0
+    kind: fixed
+    gain: 1.0
+  - name: learned_random_arm_h8_cl
+    kind: learned
+    learned_gain_model: runs/learned_gain_models/RANDOM_ARM_H8_CL_PLACEHOLDER
+
+controller:
+  name: joint_pd
+  Kp: 30.0
+  Kd: 3.0
+  action_scale: 5.0
+  ik_max_iter: 200
+  ik_tol: 0.01
+  ik_damping: 0.1
+
+sdn:
+  sigma: 0.0
+
+success_thresholds: [0.05, 0.10, 0.15]
+success_duration: 10
+skip_cold_start_steps_use_delay: true
+save_per_episode: true
+
+output_root: runs/closed_loop

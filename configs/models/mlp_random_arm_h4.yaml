@@ -1,0 +1,28 @@
+# H=4 multi-step rollout supervision on the ReachRandom dataset.
+# Mirrors mlp_expanded_multistep4.yaml.
+
+seed: 0
+
+architecture:
+  hidden_dims: [256, 256]
+
+train:
+  optimizer: adam
+  lr: 1.0e-3
+  weight_decay: 0.0
+  batch_size: 256
+  epochs: 200
+  early_stopping_patience: 20
+  early_stopping_min_delta: 0.0
+  val_step: 5
+  multi_step: 4
+
+data:
+  dataset_paths:
+    - runs/datasets/random_arm_expanded.npz
+
+eval:
+  rollout_horizons: [1, 10, 50]
+
+output:
+  output_root: runs/models
