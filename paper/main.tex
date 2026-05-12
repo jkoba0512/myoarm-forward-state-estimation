@@ -260,9 +260,12 @@ RL-centric literature has not addressed.
 We use the \texttt{myoArmReachFixed-v0} task in MyoSuite\,2.12.2, a 34-muscle
 shoulder-elbow-wrist-hand system actuated by activations in $[0,1]^{34}$.
 The task is to drive the index-finger tip to a randomly drawn target in a
-$12$\,s episode at $\Delta t{=}0.02$\,s (600 control steps). The flat state
-$x\!\in\!\mathbb{R}^{83}$ stacks $q$ (20), $\dot q$ (20), activation
-(34), tip position (3), target (3), and reach error (3). True state is
+$12$\,s episode at $\Delta t{=}0.02$\,s (600 control steps). The flat state $x\!\in\!\mathbb{R}^{83}$ stacks joint positions
+$q\!\in\!\mathbb{R}^{20}$, joint velocities $\dot q\!\in\!\mathbb{R}^{20}$,
+muscle activations $a\!\in\!\mathbb{R}^{34}$, finger-tip position
+$p_{\mathrm{tip}}\!\in\!\mathbb{R}^{3}$, target
+$p_{\mathrm{tgt}}\!\in\!\mathbb{R}^{3}$, and reach error
+$e{=}p_{\mathrm{tgt}}-p_{\mathrm{tip}}\!\in\!\mathbb{R}^{3}$. True state is
 extracted from MuJoCo and used only as an oracle for evaluation; the closed
 loop never accesses it (Fig.\,\ref{fig:system}).
 
