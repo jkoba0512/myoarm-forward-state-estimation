@@ -210,7 +210,13 @@ sensorimotor estimation, prediction, and learning. Our residual MLP is
 a coarse instantiation of the forward model in that picture; the
 multi-step supervision we add is motivated by the fact that the loop
 that consumes the estimate operates over hundreds of integration steps
-and thus depends on long-horizon prediction quality.
+and thus depends on long-horizon prediction quality. More biologically
+grounded forward-model families --- continuous-time recurrent networks
+with input-modulated time constants such as liquid time-constant
+networks~\cite{hasani2021liquid} and their closed-form
+variant~\cite{hasani2022cfc} --- have been proposed for sensorimotor
+dynamics; in this work we keep the forward-model implementation
+intentionally generic to isolate the oracle-choice question.
 
 \smallskip
 
@@ -782,7 +788,12 @@ labelling noise, but a closed-loop differentiable label might. (c)~All
 results are on a single MyoSuite reach task; transfer to grasp/place
 tasks is open. (d)~The 17\,cm residual at $d{=}0$ is structural and could
 be closed with a predictor parameterisation that supports $K{=}0$
-exactly.
+exactly. (e)~The residual MLP used here is a discrete-time,
+feed-forward approximation of the cerebellar forward model; a
+continuous-time recurrent family with input-dependent time constants
+(LTC~\cite{hasani2021liquid}, CfC~\cite{hasani2022cfc}) maps more
+closely to the cerebellar microcircuit and is a natural extension when
+this estimator is plugged into a full cortico-cerebellar loop.
 
 % ============================================================
 \section{Conclusion}
