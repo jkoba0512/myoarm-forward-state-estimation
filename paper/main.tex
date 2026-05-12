@@ -347,15 +347,18 @@ loop never accesses it (Fig.\,\ref{fig:system}).
              loop (no true state)}] {};
 \end{scope}
 \end{tikzpicture}
-\caption{Closed-loop pipeline. Each step the env's true state $x_t$ is
-filtered through observation wrappers that add per-field Gaussian noise
-and a fixed delay, producing $y_t$. The Kalman estimator combines $y_t$
-with a one-step prediction $x_{\mathrm{pred}}$ produced by the residual-MLP
-forward model $f_\theta(\hat x_{t-1}, u_{t-1})$, weighted by a scalar gain
-$K$. The controller consumes only the estimator output $\hat x_t$ and
-emits the next muscle excitation $u_t \in [0,1]^{34}$. The true state is
-exposed only to the offline evaluator (dashed red box); the closed loop
-never accesses it.}
+\caption[Closed-loop pipeline.]%
+{\textbf{Closed-loop pipeline.} Each control step, the env's true
+state $x_t$ is filtered through observation wrappers that add
+per-field Gaussian noise and a fixed delay, producing $y_t$. The
+Kalman estimator combines $y_t$ with a one-step prediction
+$x_{\mathrm{pred}}$ produced by the residual-MLP forward model
+$f_\theta(\hat x_{t-1}, u_{t-1})$ via a scalar gain $K\!\in\![0,1]$
+(Eq.\,\ref{eq:kalman_update}). The controller consumes only the
+estimator output $\hat x_t$ and emits the next muscle excitation
+$u_t\!\in\![0,1]^{34}$. The true state $x_t$ is exposed only to the
+offline evaluator (dashed red box); the closed loop never accesses
+it.}
 \label{fig:system}
 \end{figure*}
 
@@ -532,13 +535,19 @@ as the single-step baseline throughout the paper.
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{F2_stress_oracle_K.pdf}
-\caption{Open-loop oracle Kalman gain $K^{\star}$ across the stress
-grid (3 controllers $\times$ 6 noise levels $\times$ 4 delays $\times$
-5 $K$-values, 360 cells; mean across controllers shown). Three
-forward-model variants: single-step, $K{=}4$ multi-step, and $K{=}8$
-multi-step. Under single-step supervision the $K{<}1$ regime is
-confined to zero delay; multi-step supervision widens it to delay
-$\geq 6$\,steps in the high-noise cells.}
+\caption[Open-loop oracle $K^{\star}$ across forward-model variants.]%
+{\textbf{Open-loop oracle Kalman gain $K^{\star}$ as a function of
+observation delay (rows) and noise level (columns), shown for three
+forward-model variants.} Each cell reports the $K\!\in\!\{0,
+0.25, 0.5, 0.75, 1.0\}$ that minimises the open-loop estimation
+error $\|\hat x_t - x_t\|^2$ on a stress-eval grid of $3$ controllers
+$\times\,6$ noise levels $\times\,4$ delays $\times\,5\,K$-values
+($=360$ cells; the mean across the three controllers is shown). Dark
+purple marks $K^{\star}{=}1$ (trust the observation); yellow marks
+$K^{\star}{=}0.25$ (trust the model). Under single-step supervision
+(left) the $K^{\star}{<}1$ regime is confined to zero delay
+(18 / 72 cells); multi-step supervision widens it to delay $\geq 6$
+in the high-noise cells (26 / 72 for $K{=}4$, 27 / 72 for $K{=}8$).}
 \label{fig:F2_oracle}
 \end{figure*}
 
@@ -557,10 +566,18 @@ Only 18 of 72 conditions (25\%) require $K^{\star}{<}1$.
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{F4_phase2d_delta_heatmap.pdf}
-\caption{Joint-PD closed-loop reaching: $\Delta$ between the learned
-condition-level predictor and the $K{=}1$ baseline, per (noise, delay)
-cell. The $-8.6$\,cm signal at (none, $d{=}18$) is the only cell where
-the learned predictor clearly beats $K{=}1$.}
+\caption[Where the learned predictor beats $K{=}1$ in closed loop.]%
+{\textbf{Closed-loop reaching: signed difference $\Delta = \text{learned} -
+(K{=}1)$ in min-tip and final-tip error per (noise, delay) cell,
+under the single-step-supervised forward model and the joint-PD
+controller (mean over 10 episodes per cell).} Blue cells favour the
+learned predictor, red cells favour $K{=}1$, white cells are within
+$\pm 0.02$\,m. The $-8.6$\,cm signal at (none, $d{=}18$) is the only
+cell where the learned predictor clearly beats $K{=}1$ --- exactly
+the regime where the open-loop oracle of Fig.\,\ref{fig:F2_oracle}
+says $K^{\star}{=}1$, but where in closed loop the controller's
+reliance on the buffered prediction makes a tighter estimate pay off.
+Other cells differ by less than $2$\,cm.}
 \label{fig:F4_phase2d}
 \end{figure}
 
@@ -581,9 +598,17 @@ target, and the learned estimator reaches further.
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{F5_phase2d_trajectory.pdf}
-\caption{Representative closed-loop trajectories at (noise=none,
-$d{=}18$): mean $\pm$ std of $\min$-tip error across 10 episodes for
-each estimator.}
+\caption[Representative closed-loop trajectories at (none, $d{=}18$).]%
+{\textbf{Closed-loop tip-to-target distance over a 12\,s episode at
+(noise=none, $d{=}18$), under the single-step-supervised forward
+model and the joint-PD controller.} Lines and shaded bands are the
+mean $\pm$ standard deviation over 10 episodes for each estimator;
+the dashed line marks the 5\,cm reach threshold. Prediction-only
+($K{=}0$, orange) diverges over the $d{=}18$ buffer rollout;
+observation-only ($K{=}1$, blue) approaches but oscillates around
+the buffered target; the learned condition-level predictor (green)
+reaches further, producing the $-8.6$\,cm advantage of
+Fig.\,\ref{fig:F4_phase2d}.}
 \label{fig:F5_traj}
 \end{figure}
 
@@ -593,10 +618,20 @@ each estimator.}
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{F6_controller_tradeoff.pdf}
-\caption{Trade-off between reaching success and estimator differentiation
-across five controller variants. The joint-PD+IK controller sits in
-the high-differentiation / low-reaching regime; BC variants improve
-reaching but lose the estimator signal.}
+\caption[Reaching vs.\ estimator-differentiation trade-off across
+controllers.]%
+{\textbf{Each point is one controller variant evaluated on the same
+focused 6-cell grid: $x$-axis is the reaching success$_{<10\,
+\mathrm{cm}}$ rate under a $K{=}1$ baseline estimator, $y$-axis is
+the worst-case $|\Delta(\text{learned}-K{=}1)|$ in min-tip over the
+six cells.} The joint-PD+IK controller (D, green square) sits in
+the high-differentiation / low-reaching corner and is the only
+variant in which the learned predictor visibly beats $K{=}1$
+($-8.6$\,cm at (none, $d{=}18$)); the heuristic controller (E)
+reaches nothing; the three BC variants (BC full, $-$target,
+$-$target/$-$reach\_err) reach 8--12\,\% but their estimator
+differentiation collapses to under 3\,mm. The $y$-axis uses
+symmetric log scaling.}
 \label{fig:F6_tradeoff}
 \end{figure}
 
@@ -619,13 +654,24 @@ side result and return to it in the discussion.
 \begin{figure*}[t]
 \centering
 \includegraphics[width=0.85\textwidth]{F7_paradigm_shift.pdf}
-\caption{Closed-loop reaching min-tip error under the joint-PD controller.
-Four forward-model / oracle variants. Top: single-step-supervised forward
-model. Second: $K{=}4$ multi-step. Third: $K{=}8$ multi-step. Bottom:
-$K{=}8$ forward model with Stage~A retrained on the closed-loop oracle
-(Phase~C). The orange $K{=}0$ bar drops monotonically as multi-step
-supervision strengthens; in panel~4 the green learned bar matches the
-$K{=}0$ baseline at delay-18 cells.}
+\caption[Forward-model supervision and oracle choice change the optimal
+closed-loop estimator.]%
+{\textbf{Closed-loop min-tip reaching error under the joint-PD
+controller across four (forward-model, oracle) variants.} Each
+panel reports mean $\pm$ standard deviation over 10 episodes per
+cell for three estimators: $K{=}0$ (prediction-only, orange),
+$K{=}1$ (observation-only, blue), and the learned condition-level
+predictor $g_\phi$ (green). The dashed horizontal line marks the
+5\,cm reach threshold. (1) Single-step-supervised forward model:
+$K{=}0$ diverges in some cells, the learned predictor sits near
+$K{=}1$. (2)~$K{=}4$ multi-step supervision: $K{=}0$ becomes
+competitive. (3)~$K{=}8$ multi-step: $K{=}0$ is best in every
+cell while the learned predictor still tracks $K{=}1$ because its
+open-loop oracle never selected $K{=}0$. (4)~Same $K{=}8$ forward
+model, but $g_\phi$ retrained against the closed-loop oracle
+(Sec.\,\ref{sec:results-3.6}): the green learned bar now matches
+the orange $K{=}0$ bar at the three delay-18 cells, closing
+40--60\,\% of the gap at the delay-0 cells.}
 \label{fig:F7_paradigm}
 \end{figure*}
 
