@@ -13,3 +13,14 @@ runs/*
 .env
 .env.*
 .claude/
+
+# LaTeX build artifacts (track only .tex + .bib + final .pdf)
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.log
+paper/*.out
+paper/*.toc
+paper/*.fdb_latexmk
+paper/*.fls
+paper/*.synctex.gz
