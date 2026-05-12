@@ -820,7 +820,9 @@ are listed verbatim in \texttt{configs/estimators/} and
 \caption{Hyperparameters used across the paper.}
 \label{tab:hyperparams}
 \renewcommand{\arraystretch}{1.15}
-\footnotesize
+\setlength{\tabcolsep}{3pt}
+\scriptsize
+\resizebox{\linewidth}{!}{%
 \begin{tabular}{@{}lll@{}}
 \toprule
 \textbf{Component} & \textbf{Hyperparameter} & \textbf{Value} \\
@@ -845,7 +847,7 @@ Multi-step loss
   & $K$ values tested & 1, 4, 8 \\
 \midrule
 \multirow{4}{*}{Stage A $g_\phi$}
-  & input dim & 8 (3 ctrl + 4 sigma + 1 delay/$d_{\max}$) \\
+  & input dim & 8 = 3 ctrl + 4 $\sigma$ + 1 delay/$d_{\max}$ \\
   & hidden layers & 2 $\times$ 32 \\
   & output & sigmoid scalar in $[0,1]$ \\
   & parameters & 1{,}409 \\
@@ -859,7 +861,7 @@ Multi-step loss
 \multirow{3}{*}{Joint-PD controller}
   & $K_p$, $K_d$ & 30, 3 \\
   & action scale $\alpha$ & 5 \\
-  & muscle mapping & $\mathrm{clip}(\alpha\,\mathrm{ReLU}(M^{34{\times}20}u_{\mathrm{joint}}))$ \\
+  & muscle map & $\mathrm{clip}(\alpha\,\mathrm{ReLU}(M\,u_{\mathrm{joint}}))$, $M{\in}\mathbb{R}^{34\times 20}$ \\
 \midrule
 \multirow{3}{*}{IK solver}
   & method & damped Jacobian pseudoinverse \\
@@ -870,7 +872,7 @@ Multi-step loss
   & state dim variants & 83 (full) / 80 / 77 \\
   & hidden layers & 2 $\times$ 256 \\
   & output & sigmoid 34-dim \\
-  & demos / training & 30 episodes $\times$ 600 steps, 100 ep \\
+  & demos / training & 30 ep.\ $\times$ 600 steps; 100 epochs \\
 \midrule
 \multirow{3}{*}{Eval grid (open-loop)}
   & noise levels & none, low, medium, high, vhigh, xhigh \\
@@ -881,7 +883,8 @@ Multi-step loss
   & noise levels (focused) & none, high, xhigh \\
   & delays (focused) & 0, 18 \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
 \end{table}
 
 \section{Forward-Model Rollout Metrics}
@@ -899,6 +902,7 @@ held-out validation episodes. Lower is better. All three models share
 the same architecture and training set (51{,}534 transitions across
 106 episodes); they differ only in the multi-step value $K$.}
 \label{tab:fwd_rollout}
+\setlength{\tabcolsep}{4pt}
 \footnotesize
 \begin{tabular}{@{}l ccc ccc@{}}
 \toprule
