@@ -74,16 +74,31 @@ def _save(fig: plt.Figure, name: str) -> None:
 
 
 def _setup_style() -> None:
+    """Paper-quality matplotlib rcParams shared by every figure."""
     plt.rcParams.update({
         "font.family": "sans-serif",
+        "font.sans-serif": ["DejaVu Sans", "Arial", "Helvetica"],
         "font.size": 9,
-        "axes.labelsize": 10,
-        "axes.titlesize": 10,
+        "axes.labelsize": 9,
+        "axes.titlesize": 9.5,
+        "axes.linewidth": 0.7,
+        "axes.axisbelow": True,
+        "grid.linewidth": 0.4,
+        "grid.alpha": 0.35,
         "legend.fontsize": 8,
+        "legend.frameon": False,
+        "legend.handlelength": 1.6,
+        "legend.handletextpad": 0.5,
         "xtick.labelsize": 8,
+        "xtick.major.width": 0.6,
+        "xtick.major.size": 3,
         "ytick.labelsize": 8,
+        "ytick.major.width": 0.6,
+        "ytick.major.size": 3,
         "figure.dpi": 100,
         "savefig.dpi": 300,
+        "savefig.bbox": "tight",
+        "savefig.pad_inches": 0.05,
     })
 
 
@@ -539,15 +554,16 @@ def fig_F7_paradigm_shift() -> None:
     palette = {"K=0.0": COLORS["K=0.0"], "K=1.0": COLORS["K=1.0"],
                "learned": COLORS["learned"]}
 
-    fig, axes = plt.subplots(4, 1, figsize=(7.5, 9.4), sharex=True, sharey=True)
+    fig, axes = plt.subplots(4, 1, figsize=(7.4, 9.0), sharex=True, sharey=True,
+                              constrained_layout=True)
     width = 0.26
     x = np.arange(len(cells))
     for ax, data, title in (
-        (axes[0], old, "(1) Single-step forward model (Phase 3.1 / 3.3-min)"),
-        (axes[1], k4, "(2) K=4 multi-step forward model (Phase B)"),
-        (axes[2], k8, "(3) K=8 multi-step forward model (Phase B')"),
+        (axes[0], old, "(1) single-step forward model"),
+        (axes[1], k4, "(2) $K{=}4$ multi-step forward model"),
+        (axes[2], k8, "(3) $K{=}8$ multi-step forward model"),
         (axes[3], k8_c,
-         "(4) K=8 forward model + Stage A on closed-loop oracle (Phase C)"),
+         "(4) $K{=}8$ forward model + Stage A on closed-loop oracle"),
     ):
         for j, est in enumerate(estimator_order):
             means = [data[c].get(est, (np.nan, np.nan))[0] for c in cells]
@@ -561,13 +577,23 @@ def fig_F7_paradigm_shift() -> None:
         ax.set_ylim(0, 1.0)
         ax.axhline(0.05, color="red", linestyle="--", linewidth=0.6,
                    alpha=0.4, label="_success_thr_5cm")
+        ax.set_ylim(0, 1.0)
     axes[-1].set_xticks(x)
     axes[-1].set_xticklabels(cell_labels)
-    axes[-1].set_xlabel("noise condition × delay")
-    axes[0].legend(loc="upper right", frameon=False)
-    fig.suptitle("Closed-loop reaching: forward-model supervision changes "
+    axes[-1].set_xlabel("noise condition $\\times$ delay")
+    # Single legend at the top, above all four panels.
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center",
+               bbox_to_anchor=(0.5, 1.03),
+               ncol=3, frameon=False, fontsize=9)
+    fig.suptitle("closed-loop reaching: forward-model supervision changes "
                  "the optimal estimator",
-                 fontsize=10, y=1.0)
+                 fontsize=10, y=1.06)
+    # Remove legends from individual panels (will be replaced by the figure-level legend).
+    for ax in axes:
+        leg = ax.get_legend()
+        if leg is not None:
+            leg.remove()
     _save(fig, "F7_paradigm_shift")
 
 
@@ -617,7 +643,7 @@ def fig_F6_tradeoff() -> None:
     summary = pd.DataFrame(rows)
     summary.to_csv(DATA_DIR / "F6_tradeoff.csv", index=False)
 
-    fig, ax = plt.subplots(figsize=(5.5, 3.5))
+    fig, ax = plt.subplots(figsize=(5.6, 3.6), constrained_layout=True)
     markers = {"Heuristic (E)": "o", "Joint PD + IK (D)": "s", "BC full": "D",
                "BC v1 (-target)": "v", "BC v2 (-target, -reach_err)": "^"}
     palette = {"Heuristic (E)": "#888888", "Joint PD + IK (D)": "#33a02c",
@@ -625,23 +651,30 @@ def fig_F6_tradeoff() -> None:
                "BC v2 (-target, -reach_err)": "#6a3d9a"}
     for r in rows:
         ax.scatter(r["success_010_K1"], r["max_abs_delta_min"],
-                   s=160, marker=markers[r["controller"]],
+                   s=170, marker=markers[r["controller"]],
                    color=palette[r["controller"]], edgecolor="black",
-                   linewidth=0.8, zorder=3, label=r["controller"])
+                   linewidth=0.7, zorder=3, label=r["controller"])
     # Annotate D's outlying point.
     for r in rows:
         if r["controller"] == "Joint PD + IK (D)":
-            ax.annotate(f"+0.086 m at\n(none, d=18)",
-                        xy=(r["success_010_K1"], r["max_abs_delta_min"]),
-                        xytext=(0.13, 0.07),
-                        fontsize=8,
-                        arrowprops=dict(arrowstyle="->", color="gray", lw=0.8))
-    ax.set_xlabel("Reaching success_010 rate (K=1.0 baseline, avg over 6 cells)")
-    ax.set_ylabel("max |Δ(learned − K=1)| min_tip (m)")
-    ax.set_title("Controller trade-off: reaching vs. estimator differentiation")
+            ax.annotate(
+                "$\\Delta = +0.086$ m\nat (none, $d{=}18$)",
+                xy=(r["success_010_K1"], r["max_abs_delta_min"]),
+                xytext=(0.06, 0.012),
+                fontsize=7.5,
+                ha="left", va="center",
+                arrowprops=dict(arrowstyle="->", color="gray",
+                                lw=0.6, shrinkA=2, shrinkB=4),
+            )
+    ax.set_xlabel("reaching success$_{<10\\,\\mathrm{cm}}$ rate "
+                  "($K{=}1$ baseline, 6-cell mean)")
+    ax.set_ylabel("max $|\\Delta($learned$\\,-K{=}1)|$ min-tip (m)")
+    ax.set_title("controller trade-off: reaching vs. estimator differentiation")
     ax.set_yscale("symlog", linthresh=0.001)
     ax.grid(alpha=0.3, which="both")
-    ax.legend(loc="upper right", frameon=False, fontsize=7)
+    ax.legend(loc="center left", bbox_to_anchor=(0.62, 0.55), fontsize=7,
+              frameon=False)
+    ax.set_xlim(-0.005, 0.14)
     _save(fig, "F6_controller_tradeoff")
 
 
