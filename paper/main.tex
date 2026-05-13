@@ -24,12 +24,9 @@
 
 \graphicspath{{../figures/}}
 
-% Convenience macros for the experiment naming used in the running text.
-% (\K macro previously used for K=value shortcut; removed after notation review)
-\newcommand{\Kvar}{$K^{\star}$}
-\newcommand{\mtip}{\,\text{m}}
-\newcommand{\mTip}{m}
-\newcommand{\hmax}[1]{$h{=}#1$}
+% (No project-specific macros are needed in the final draft; the \K
+% shortcut and a few unused helpers were removed during the notation
+% review. K, K*_ol, K*_cl, H, h are inlined as plain math.)
 
 \begin{document}
 
@@ -483,11 +480,11 @@ K^{\star}_{\mathrm{ol}}(\sigma, d, c)
      \label{eq:K_ol}\\
 K^{\star}_{\mathrm{cl}}(\sigma, d, c)
   &= \arg\min_{K \in K_{\mathrm{grid}}}\;
-     \mathbb{E}\!\big[\textsc{minTip}(K) \,\big|\, \sigma, d, c\big],
+     \mathbb{E}\!\big[\mathrm{minTip}(K) \,\big|\, \sigma, d, c\big],
      \label{eq:K_cl}
 \end{align}
 where $(\sigma, d, c)$ ranges over (noise level, delay, controller) and
-$\textsc{minTip}$ is the closed-loop minimum tip-to-target distance over
+$\mathrm{minTip}$ is the closed-loop minimum tip-to-target distance over
 the episode. The default training oracle for $g_\phi$ is
 $K^{\star}_{\mathrm{ol}}$; Sec.\,\ref{sec:results-3.6} (C4) replaces it
 with $K^{\star}_{\mathrm{cl}}$ and retrains the same MLP unchanged. The
@@ -550,9 +547,10 @@ combination; the estimator is then run on the synthesised stream and
 per-field state error is aggregated. \emph{Closed-loop} evaluation drives
 the actual env: $u_t$ comes from the controller, which sees the estimator
 output (never the true state); 10 episodes per cell, fixed seed per episode.
-The same evaluation grid (3 controllers $\times$ 6 noise levels $\times$ 4
-delays $=72$ conditions for open-loop, focused $3{\times}2{\times}10{=}60$
-for closed-loop) is reused across phases.
+The same evaluation grid (3 controllers $\times$ 6 noise levels
+$\times$ 4 delays $=72$ open-loop conditions; the focused closed-loop
+grid is 3 noise levels $\times$ 2 delays $\times$ 10 episodes
+$=60$ episodes per estimator) is reused across phases.
 
 % ============================================================
 \section{Results}
