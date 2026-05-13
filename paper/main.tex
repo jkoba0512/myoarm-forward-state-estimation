@@ -51,13 +51,13 @@ Closed-Loop Evidence from a Muscle-Driven Reaching Task}
 
 \begin{abstract}
 We study how a learned forward model and a learned sensory
-prediction-error correction gain interact in a closed-loop muscle-
-driven reaching task. A residual MLP forward model and a fixed-lag
-predictive state observer combine forward-model predictions with
-delayed, noisy observations of a 34-muscle MyoSuite arm via a scalar
-correction gain $K$; a small condition-level predictor maps
-(noise, delay, controller) to that $K$ and is trained against an
-open-loop oracle. Plugging the observer into a joint-space PD
+prediction-error correction gain (hereafter, \emph{correction gain})
+interact in a closed-loop muscle-driven reaching task. A residual MLP
+forward model and a fixed-lag predictive state observer combine
+forward-model predictions with delayed, noisy observations of a
+34-muscle MyoSuite arm via a scalar correction gain $K$; a small
+condition-level predictor maps (noise, delay, controller) to that $K$
+and is trained against an open-loop oracle. Plugging the observer into a joint-space PD
 controller with an inverse-kinematics target reveals a chain of
 findings. \emph{First}, with a single-step-supervised forward model
 the learned predictor matches the oracle and beats observation-only
@@ -78,11 +78,10 @@ task error rather than open-loop estimation accuracy moves its
 output to $K\!\approx\!0.02$, matches the $K{=}0$ baseline within
 $1.5$\,cm at delay $\geq 18$\,steps, and closes 40--60\% of the gap
 at zero delay --- with no change to the predictor architecture. The
-right sensory prediction-error correction gain in closed loop
-therefore depends not only on the noise and delay regime but on
-\emph{what objective the predictor was trained against}, and
-learned-correction-gain papers should specify the oracle choice
-explicitly.
+right correction gain in closed loop therefore depends not only on
+the noise and delay regime but on \emph{what objective the predictor
+was trained against}, and learned-correction-gain papers should
+specify the oracle choice explicitly.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -164,11 +163,10 @@ structural: the K-curve there jumps sharply from $K{=}0$ to $K{=}0.25$,
 so the predictor's sigmoid asymptote loses $\sim\!0.17$\,m.
 \end{itemize}
 
-Together, C1--C4 say that the optimal closed-loop sensory
-prediction-error correction gain depends on two coupled choices that
-the literature usually treats as independent: the forward model's
-accuracy over the controller's planning horizon, and the oracle the
-$K$-predictor was trained against. When the open-loop oracle and the
+Together, C1--C4 say that the optimal closed-loop correction gain
+depends on two coupled choices that the literature usually treats as
+independent: the forward model's accuracy over the controller's
+planning horizon, and the oracle the $K$-predictor was trained against. When the open-loop oracle and the
 closed-loop optimum disagree --- as they do for multi-step-supervised
 forward models on this task --- the two pull the predictor in
 opposite directions.
@@ -565,7 +563,13 @@ A two-hidden-layer (256 unit) sigmoid policy is trained on 30
 scripted IK demonstrations in the spirit of \cite{pomerleau1988alvinn};
 we deliberately do not iterate the demonstrator with
 DAgger~\cite{ross2011dagger} and report the resulting open-loop
-collapse in Sec.\,\ref{sec:results-3.4}.
+collapse in Sec.\,\ref{sec:results-3.4}. We treat the
+behaviour-cloned policy not as a neural-circuit model but as a
+\emph{minimal learned sensorimotor policy}, a learned counterpart
+to the hand-designed joint-space feedback in (ii), to test whether
+observer-dependent state estimates remain behaviourally relevant
+when the downstream mapping is learned from demonstrations rather
+than written as an explicit feedback law.
 
 \subsection{Evaluation Pipeline}
 \emph{Open-loop} evaluation replays a recorded episode and applies
@@ -851,13 +855,23 @@ future work.
 
 \noindent\textbf{Behaviour cloning is not a good benchmark for state
 estimation.} C2 shows that, at modest demonstration scale, a
-behaviour-cloned policy reaches better than the joint-PD controller but
-consumes state estimates so weakly that estimator differences disappear
-from task metrics. Closed-loop estimator benchmarks should use
-controllers that are demonstrably state-coupled (the joint-PD+IK family
-used here works); a BC policy that generalises poorly per target is
-effectively open-loop in the state channel even though it nominally
-consumes a state vector.
+behaviour-cloned policy reaches better than the joint-PD controller
+but consumes state estimates so weakly that observer-output
+differences disappear from task metrics. Closed-loop state-estimation
+benchmarks should use controllers that are demonstrably state-
+coupled (the joint-PD+IK family used here works); a BC policy that
+generalises poorly per target is effectively open-loop in the state
+channel even though it nominally consumes a state vector. The two
+controllers in this paper --- a hand-designed joint-space feedback
+law and a learned sensorimotor policy --- span two corners of a
+broader controller-coupling axis; a natural third class to test is
+a task-level \emph{endpoint-error feedback controller} that drives
+muscle commands from the estimated tip-to-target error directly,
+which would interpolate between the joint-level feedback that
+strongly couples to the estimator output and the learned policy
+that does not. We frame this as a controller-design question, not
+as an optimality claim: we do not solve a Riccati or LQR problem
+and do not call any of these controllers ``optimal''.
 
 \smallskip
 
@@ -867,7 +881,12 @@ rollouts); a differentiable surrogate would scale this far better.
 (b)~Our learned predictor is condition-level (no per-step state coupling
 beyond the sigma vector and delay scalar); a state-aware Stage~B variant
 we explored briefly did not beat the condition-level baseline because of
-labelling noise, but a closed-loop differentiable label might. (c)~Results
+labelling noise, but a closed-loop differentiable label might. A
+natural complementary axis on the controller side is to add an
+\emph{endpoint-error feedback controller} as a third class beside
+joint-space feedback and behaviour-cloned policy --- a task-level
+hand-designed feedback law from estimated tip-to-target error to
+muscle commands --- which we leave to follow-up work. (c)~Results
 cover two MyoSuite reach variants --- fixed and random targets,
 sharing the 34-muscle arm and 600-step horizon
 (Appendix~\ref{app:reach-random}). C1 replicates fully on the
@@ -895,9 +914,8 @@ cortico-cerebellar loop.
 % ============================================================
 
 We have shown on a muscle-driven reaching task that the closed-loop
-optimal sensory prediction-error correction gain depends on both the
-forward model's accuracy and the oracle used to train any learned
-gain predictor. Single-step supervision of the forward model creates
+optimal correction gain depends on both the forward model's accuracy
+and the oracle used to train any learned gain predictor. Single-step supervision of the forward model creates
 a small but real regime where a learned condition-level correction
 gain beats observation-only by 8.6\,cm at the delay-dominated cell
 (C2). Multi-step supervision flips the regime: $K{=}0$ becomes the
