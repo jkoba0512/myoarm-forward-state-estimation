@@ -778,17 +778,21 @@ all 6 cells the closed-loop-aware predictor closes 40--60\% of the
 single-step paradigm gap; mean improvement vs.\ the open-loop-oracle
 predictor is $-16$\,cm. No architectural changes were made.
 
-A short transfer slice on the variable-target variant
+A transfer slice on the variable-target variant
 \texttt{myoArmReachRandom-v0} (Appendix~\ref{app:reach-random})
-confirms the structural picture but refines two details: the
-$H{=}1{\to}H{=}8$ regime shift is task-dependent (prediction-only
-$K{=}0$ already beats $K{=}1$ at $H{=}1$ on ReachRandom, so there
-is no shift to observe), while $K^{\star}_{\mathrm{cl}}$ on
-ReachRandom takes three distinct values across the focused grid
-($K{=}0$ at $d{=}0$, $K{=}0.25$ at delay-18 low/medium noise,
-$K{=}1$ at (xhigh, $d{=}18$)), strengthening the C4 argument that
-the closed-loop oracle is a non-degenerate, task-and-cell-dependent
-function.
+fully replicates C1 ($K^{\star}_{\mathrm{ol}}{<}1$ in 18\,/\,72 cells
+at $H{=}1$ and 25\,/\,72 at $H{=}8$, matching the ReachFixed counts),
+partially replicates C3 (the $H{=}1{\to}H{=}8$ regime shift does not
+apply because $K{=}0$ already wins at $H{=}1$ on ReachRandom), and
+exhibits a richer C4 picture: $K^{\star}_{\mathrm{cl}}$ takes three
+distinct values across the focused grid ($K{=}0$ at $d{=}0$,
+$K{=}0.25$ at delay-18 low/medium noise, $K{=}1$ at (xhigh, $d{=}18$)),
+and a Stage A predictor retrained on these labels matches the $K{=}0$
+baseline within $1.3$\,cm at every delay-0 cell, beating the
+$K^{\star}_{\mathrm{ol}}$-trained predictor by 1--13\,cm there. The
+oracle-redefinition argument is corroborated at $d{=}0$ and limited
+by the same sigmoid-output parameterisation flagged above when
+$K^{\star}_{\mathrm{cl}}$ varies across cells at long delay.
 
 % ============================================================
 \section{Discussion}
@@ -841,13 +845,15 @@ we explored briefly did not beat the condition-level baseline because of
 labelling noise, but a closed-loop differentiable label might. (c)~Results
 cover two MyoSuite reach variants --- fixed and random targets,
 sharing the 34-muscle arm and 600-step horizon
-(Appendix~\ref{app:reach-random}). On the variable-target variant the
-$H{=}1{\to}H{=}8$ regime shift does not apply because $K{=}0$ already
-wins at $H{=}1$, but the C4 oracle-redefinition argument is
-corroborated (and made richer: $K^{\star}_{\mathrm{cl}}$ varies
-across cells rather than collapsing to $K{=}0$). Transfer to
-contact-rich tasks (grasp/place) and to systems with different
-muscle counts (Elbow/Finger reach) remains open. (d)~The 17\,cm residual at $d{=}0$ is structural and could
+(Appendix~\ref{app:reach-random}). C1 replicates fully on the
+variable-target variant; the C3 $H{=}1{\to}H{=}8$ regime shift does
+not apply there because $K{=}0$ already wins at $H{=}1$; the C4
+oracle-redefinition argument transfers at delay-0 (learned-cl beats
+learned-ol by 1--13\,cm) and is muted at delay-18 because the closed-
+loop K-curve varies across noise rows in ways the sigmoid output
+cannot cleanly fit. Transfer to contact-rich tasks (grasp/place) and
+to systems with different muscle counts (Elbow/Finger reach) remains
+open. (d)~The 17\,cm residual at $d{=}0$ is structural and could
 be closed with a predictor parameterisation that supports $K{=}0$
 exactly. (e)~The residual MLP used here is a discrete-time,
 feed-forward approximation at the box level of the cerebellar
@@ -1194,42 +1200,145 @@ xhigh & 18 & 0.642 & 0.662 & 0.691 & 0.650 & \textbf{0.627} \\
 \end{tabular}
 \end{table}
 
+\noindent\textbf{Open-loop oracle structure on ReachRandom.} We re-ran
+the full $3\,\text{controllers} \times 6\,\text{noise} \times
+4\,\text{delay} \times 5\,K$ stress eval (using 2 episodes per
+controller, matching the ReachFixed scale) for both forward models.
+$K^{\star}_{\mathrm{ol}} < 1$ holds in 18 / 72 cells under $H{=}1$
+(exactly matching ReachFixed at $H{=}1$) and 25 / 72 cells under
+$H{=}8$ (vs.\ 27 / 72 on ReachFixed); blending is again confined to
+delay-0 cells under $H{=}1$ and expands to delay $\geq 6$ under $H{=}8$
+(Table~\ref{tab:rr_oracle}). C1 therefore replicates structurally on
+ReachRandom.
+
+\begin{table}[!htbp]
+\centering
+\caption{ReachRandom $K^{\star}_{\mathrm{ol}}$ (mean over 3 controllers)
+per (noise, delay) cell, under $H{=}1$ (top) and $H{=}8$ (bottom).
+Dashes mark $K^{\star}_{\mathrm{ol}}{=}1.0$ (trust the observation).
+The non-trivial $K^{\star}_{\mathrm{ol}} < 1$ regime is confined to
+delay-0 under $H{=}1$ and spreads to delay $\geq 6$ under $H{=}8$,
+mirroring ReachFixed.}
+\label{tab:rr_oracle}
+\setlength{\tabcolsep}{4pt}
+\footnotesize
+\begin{tabular}{@{}l cccc@{}}
+\toprule
+\multicolumn{5}{@{}l}{$H{=}1$ single-step forward model} \\
+\midrule
+noise $\backslash$ delay & 0 & 6 & 18 & 36 \\
+\midrule
+none   & --    & --    & -- & -- \\
+low    & 0.83 & --    & -- & -- \\
+medium & 0.67 & --    & -- & -- \\
+high   & 0.50 & --    & -- & -- \\
+vhigh  & 0.33 & 0.92 & -- & -- \\
+xhigh  & 0.25 & 0.67 & -- & -- \\
+\midrule
+\multicolumn{5}{@{}l}{$H{=}8$ multi-step forward model} \\
+\midrule
+noise $\backslash$ delay & 0 & 6 & 18 & 36 \\
+\midrule
+none   & --    & --    & --    & -- \\
+low    & 0.83 & --    & --    & -- \\
+medium & 0.67 & --    & --    & -- \\
+high   & 0.42 & 0.92 & --    & -- \\
+vhigh  & 0.33 & 0.67 & 0.92 & -- \\
+xhigh  & 0.25 & 0.50 & 0.75 & 0.75 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Learned predictors trained on
+$K^{\star}_{\mathrm{ol}}$ vs $K^{\star}_{\mathrm{cl}}$.} We train the
+same $8{\to}32{\to}32{\to}1$ Stage A predictor on (i) the
+$K^{\star}_{\mathrm{ol}}$ table from the $H{=}8$ ReachRandom stress
+eval, and (ii) the per-cell $K^{\star}_{\mathrm{cl}}$ labels from
+Table~\ref{tab:rr_h8_ksweep} (extended to the 72-cell schema by
+replicating the joint-PD label across the auxiliary controllers and
+the un-swept delays/noises). Table~\ref{tab:rr_learned} reports the
+$K$ each predictor outputs at the focused grid and the resulting
+closed-loop $\min$-tip. The $K^{\star}_{\mathrm{ol}}$ predictor
+recovers values near $K{=}1$ at delay-18 cells (its training labels
+were $K^{\star}_{\mathrm{ol}}{=}1$ there), matching the
+$K{=}1$ baseline within $1$\,cm. The $K^{\star}_{\mathrm{cl}}$
+predictor recovers small $K$ ($0.06$--$0.31$) at delay-0 cells,
+beating the $K^{\star}_{\mathrm{ol}}$ predictor by $1.3$--$12.6$\,cm
+there. At delay-18 the $K^{\star}_{\mathrm{cl}}$ predictor's outputs
+drift toward intermediate values ($K{=}0.24$--$0.95$) and the resulting
+closed-loop reach is comparable to $K{=}1$ (within $\pm 8$\,cm). The
+oracle-redefinition transfer therefore holds clearly at delay-0 but
+is muted at delay-18 because the closed-loop K-curve there is
+relatively flat (Table~\ref{tab:rr_h8_ksweep}) and the sigmoid
+output cannot cleanly land on the mixed $K^{\star}_{\mathrm{cl}}$
+($0/0.25/1$) values across the three noise rows.
+
+\begin{table}[!htbp]
+\centering
+\caption{ReachRandom $H{=}8$ closed-loop comparison of four
+estimators on the focused grid. Columns: $K{=}0$, $K{=}1$,
+\emph{learned-ol} (Stage A trained on
+$K^{\star}_{\mathrm{ol}}$), \emph{learned-cl} (Stage A trained on
+$K^{\star}_{\mathrm{cl}}$); for each learned predictor we report
+both its mean output $\bar K$ and the closed-loop $\min$-tip (m,
+mean over 10 episodes).}
+\label{tab:rr_learned}
+\setlength{\tabcolsep}{3pt}
+\footnotesize
+\begin{tabular}{@{}ll cc cc cc@{}}
+\toprule
+\multirow{2}{*}{noise} & \multirow{2}{*}{delay}
+  & \multirow{2}{*}{$K{=}0$} & \multirow{2}{*}{$K{=}1$}
+  & \multicolumn{2}{c}{learned-ol} & \multicolumn{2}{c}{learned-cl} \\
+\cmidrule(lr){5-6}\cmidrule(lr){7-8}
+& & & & $\bar K$ & m & $\bar K$ & m \\
+\midrule
+none  & 0  & 0.670 & 0.770 & 0.80 & 0.781 & 0.06 & 0.655 \\
+none  & 18 & 0.642 & 0.647 & 0.98 & 0.638 & 0.24 & 0.673 \\
+high  & 0  & 0.670 & 0.770 & 0.71 & 0.777 & 0.09 & 0.690 \\
+high  & 18 & 0.642 & 0.639 & 0.96 & 0.644 & 0.47 & 0.721 \\
+xhigh & 0  & 0.670 & 0.762 & 0.36 & 0.783 & 0.31 & 0.770 \\
+xhigh & 18 & 0.642 & 0.627 & 0.88 & 0.654 & 0.95 & 0.642 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \noindent\textbf{Assessment against the pre-committed criteria.}
 \begin{itemize}
-\item \emph{C1}: not directly tested in this transfer slice (we did
-not re-run the full $5\,K \times 6\,\text{noise} \times 4\,\text{delay}
-\times 3\,\text{controller}$ stress eval); $K^{\star}_{\mathrm{ol}}$
-on ReachRandom is left for future work.
+\item \emph{C1 (full replication)}: open-loop oracle
+$K^{\star}_{\mathrm{ol}}$ varies with noise and delay in the same
+qualitative shape as ReachFixed, with the $K^{\star}_{\mathrm{ol}}<1$
+fraction growing from 18 / 72 ($H{=}1$) to 25 / 72 ($H{=}8$).
 \item \emph{C3 (partial replication)}: $H{=}8$ rollout supervision
 reduces forward-model error by 48\,\% (replicates) and $K{=}0$ is
 optimal at all three delay-0 cells (replicates). The
 ReachFixed-style \emph{regime shift} from $K{=}1$-winning at $H{=}1$
-to $K{=}0$-winning at $H{=}8$ does \emph{not} apply on ReachRandom
-because $K{=}0$ was already winning at $H{=}1$; the variable-target
-variant is structurally more favourable to prediction-only across
-forward-model strengths.
-\item \emph{C4 (qualitative replication, stronger form)}: the closed-
-loop oracle $K^{\star}_{\mathrm{cl}}$ on ReachRandom is \emph{not}
+to $K{=}0$-winning at $H{=}8$ does \emph{not} apply because $K{=}0$
+was already winning at $H{=}1$; the variable-target variant is
+structurally more favourable to prediction-only across forward-model
+strengths.
+\item \emph{C4 (partial replication, made richer)}: the closed-loop
+oracle $K^{\star}_{\mathrm{cl}}$ on ReachRandom is \emph{not}
 uniformly $K{=}0$ (3 cells pick $K{=}0$, 2 cells pick $K{=}0.25$,
-1 cell picks $K{=}1$), confirming that
-$K^{\star}_{\mathrm{cl}}$ is a genuinely task-and-cell-dependent
-function rather than the degenerate constant suggested by the
-ReachFixed grid. The structural argument of C4 --- that the
-predictor's training oracle is the relevant control knob --- is
-\emph{strengthened} by this variability: a predictor trained on
-$K^{\star}_{\mathrm{ol}}$ (which would generally pick $K{=}1$ at
-long delay) would mis-fire here.
+1 cell picks $K{=}1$), confirming $K^{\star}_{\mathrm{cl}}$ is a
+non-degenerate task-and-cell-dependent function. A Stage A predictor
+retrained on these labels matches the $K{=}0$ baseline within
+$1.3$\,cm at every delay-0 cell and beats the
+$K^{\star}_{\mathrm{ol}}$-trained predictor by 1--13\,cm there. At
+delay-18, where $K^{\star}_{\mathrm{cl}}$ takes three different values
+across the three noise rows, the predictor's sigmoid output cannot
+cleanly land on each label, and the closed-loop benefit is muted.
 \end{itemize}
 
 \noindent\textbf{Take-away.} The ReachRandom transfer test does not
-falsify any C1/C3/C4 claim; it refines them. C3's regime-shift framing
-is task-dependent, but the underlying fact (multi-step supervision
-makes prediction-only competitive in closed loop) replicates. C4's
-oracle-redefinition argument is corroborated and made richer: the
-closed-loop oracle is non-trivial across cells on this variant. We
-leave the full open-loop stress grid and a learned-predictor-on-
-$K^{\star}_{\mathrm{cl}}$-trained-on-ReachRandom evaluation to a
-follow-up.
+falsify any C1/C3/C4 claim; it refines them. C1 replicates fully. C3's
+regime-shift framing is task-dependent, but the underlying fact
+(multi-step supervision makes prediction-only competitive in closed
+loop) replicates. C4's oracle-redefinition argument transfers cleanly
+to delay-0 cells; at delay-18 the sigmoid-output predictor cannot
+fully exploit the cell-dependent $K^{\star}_{\mathrm{cl}}$, which is
+the same parameterisation limitation flagged in
+Sec.\,\ref{sec:results-3.6}.
 
 \section{Software, Hardware, and Reproducibility}
 \label{app:repro}

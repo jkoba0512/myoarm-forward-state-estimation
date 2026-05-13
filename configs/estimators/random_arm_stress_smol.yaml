@@ -1,0 +1,27 @@
+# Stress eval on ReachRandom using 2-episode-per-controller runs
+# (mirrors the ReachFixed stress eval scale). Forward model is
+# overridden via --forward-model.
+
+seed: 0
+forward_model: runs/models/PLACEHOLDER
+
+runs:
+  - runs/episodes/2026-05-13T00-32-10Z   # random, sigma=0.2  (2 eps)
+  - runs/episodes/2026-05-13T00-32-11Z   # lowamp, sigma=0.05 (2 eps)
+  - runs/episodes/2026-05-13T00-32-13Z   # hold              (2 eps)
+
+obs_compose: noisy_then_delayed
+
+gain_grid: [0.0, 0.25, 0.5, 0.75, 1.0]
+delay_grid: [0, 6, 18, 36]
+
+noise_conditions:
+  none:    { qpos: 0.0,   qvel: 0.0,   tip_pos: 0.0,    reach_err: 0.0 }
+  low:     { qpos: 0.005, qvel: 0.005, tip_pos: 0.0025, reach_err: 0.0025 }
+  medium:  { qpos: 0.01,  qvel: 0.01,  tip_pos: 0.005,  reach_err: 0.005 }
+  high:    { qpos: 0.02,  qvel: 0.02,  tip_pos: 0.01,   reach_err: 0.01 }
+  vhigh:   { qpos: 0.04,  qvel: 0.04,  tip_pos: 0.02,   reach_err: 0.02 }
+  xhigh:   { qpos: 0.08,  qvel: 0.08,  tip_pos: 0.04,   reach_err: 0.04 }
+
+skip_cold_start: true
+output_root: runs/estimators

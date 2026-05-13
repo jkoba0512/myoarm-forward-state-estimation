@@ -1,0 +1,27 @@
+# Tiny ReachRandom random-controller run for stress eval purposes.
+# 2 episodes matches the ReachFixed-era baselines that fed the original
+# stress eval (configs/episodes/default.yaml n_episodes: 2).
+
+env_id: myoArmReachRandom-v0
+target_set: runs/targets/train.npz
+
+controller:
+  name: random
+  mean: 0.5
+  sigma: 0.2
+
+master_seed: 0
+
+sdn:
+  sigma: 0.0
+
+obs_noise:
+  sigma: {}
+
+obs_delay_steps: 0
+obs_compose: noisy_then_delayed
+
+max_steps: 600
+n_episodes: 2
+
+output_root: runs/episodes

@@ -30,6 +30,9 @@ run_to_controller:
   "2026-05-12T12-50-01Z": random
   "2026-05-12T12-50-13Z": lowamp
   "2026-05-12T12-50-24Z": hold
+  "2026-05-13T00-32-10Z": random
+  "2026-05-13T00-32-11Z": lowamp
+  "2026-05-13T00-32-13Z": hold
 
 noise_conditions:
   none:    { qpos: 0.0,   qvel: 0.0,   tip_pos: 0.0,    reach_err: 0.0 }

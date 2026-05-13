@@ -1,0 +1,24 @@
+# Tiny ReachRandom hold-controller run for stress eval purposes.
+
+env_id: myoArmReachRandom-v0
+target_set: runs/targets/train.npz
+
+controller:
+  name: hold
+  value: 0.0
+
+master_seed: 0
+
+sdn:
+  sigma: 0.0
+
+obs_noise:
+  sigma: {}
+
+obs_delay_steps: 0
+obs_compose: noisy_then_delayed
+
+max_steps: 600
+n_episodes: 2
+
+output_root: runs/episodes
