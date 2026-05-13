@@ -558,11 +558,10 @@ moment-arm matrix (the dense form of MuJoCo's sparse
 $\alpha\!=\!5$ is a scalar action scale. Tuned gains:
 $K_p\!=\!30$, $K_d\!=\!3$.
 
-\emph{(iii)~Endpoint-error feedback.}
-A task-level analogue of (ii) that skips the IK pre-step and drives
-the tip by a Cartesian PD law on the estimated tip-to-target error,
-projected back to muscle space through the tip Jacobian and the
-moment-arm matrix:
+\emph{(iii)~Endpoint-error sensorimotor policy.}
+A task-level analogue of (ii) that skips the IK pre-step and maps the
+estimated tip-to-target error to muscle excitation via a Cartesian PD
+law projected through the tip Jacobian and the moment-arm matrix:
 \begin{align}
 u_{\mathrm{tip}}   &= K_{p,e}\,(p^{\star}-\hat p_{\mathrm{tip}}) - K_{d,e}\,J\hat{\dot q},\\
 u_{\mathrm{joint}} &= J^{\top}\,u_{\mathrm{tip}},\\
@@ -571,10 +570,11 @@ u_{\mathrm{muscle}}&= \mathrm{clip}\!\bigl(\alpha\,\mathrm{ReLU}(M\,u_{\mathrm{j
 \end{align}
 with $K_{p,e}{=}30$, $K_{d,e}{=}3$, $\alpha{=}5$ and $J$ the tip-
 site positional Jacobian captured at the env's neutral pose. We use
-this as a transparent task-level feedback law that lets the observer
-output flow directly to muscle commands without an IK pre-step; the
-$J^{\top}$-style projection is the classic Jacobian-transpose method
-and is not optimal in any LQR / OFC sense.
+this as a transparent task-level state-coupled policy that lets the
+observer output flow directly to muscle commands without an IK pre-
+step; the $J^{\top}$-style projection is the classic Jacobian-
+transpose method and is \emph{not} an optimal feedback controller
+(no Riccati / LQR / OFC is solved here).
 
 \emph{(iv)~Behaviour-cloned MLP.}
 A two-hidden-layer (256 unit) sigmoid policy is trained on 30
@@ -825,23 +825,24 @@ all 6 cells the closed-loop-aware predictor closes 40--60\% of the
 single-step paradigm gap; mean improvement vs.\ the open-loop-oracle
 predictor is $-16$\,cm. No architectural changes were made.
 
-\noindent\textbf{Transfer to a second hand-designed controller.}
-Repeating the $H{=}8$ closed-loop sweep with the task-level endpoint-
-error feedback controller~(iii) yields the same C3 signature in a
-weaker form (Table~\ref{tab:endpoint_feedback}): $K{=}0$ beats $K{=}1$
-by $-18.5$ to $-18.7$\,cm at all three $d{=}0$ cells and the two are
+\noindent\textbf{Transfer to a second state-coupled policy.}
+Repeating the $H{=}8$ closed-loop sweep with the endpoint-error
+sensorimotor policy~(iii) yields the same C3 signature in a weaker
+form (Table~\ref{tab:endpoint_feedback}): $K{=}0$ beats $K{=}1$ by
+$-18.5$ to $-18.7$\,cm at all three $d{=}0$ cells and the two are
 within $\pm 3.2$\,cm at $d{=}18$. The $K^{\star}_{\mathrm{cl}}$-trained
 predictor outputs $K\!\approx\!0.018$--$0.025$, matching its
-joint-PD-trained behaviour. Endpoint-feedback's $K{=}0$ baseline is
-$\sim\!11$\,cm worse in absolute terms than joint-PD's
-($0.60$\,m vs $0.49$\,m) because the Jacobian-transpose projection
-is only locally correct and does not navigate around joint limits;
-the structural finding (forward-model supervision changes which $K$
-the controller wants) is independent of this absolute offset.
+joint-PD-trained behaviour. The endpoint-error policy's $K{=}0$
+baseline is $\sim\!11$\,cm worse in absolute terms than joint-PD's
+($0.60$\,m vs $0.49$\,m) because the Jacobian-transpose projection is
+only locally correct and does not navigate around joint limits; the
+structural finding (forward-model supervision changes which $K$ the
+downstream policy wants) is independent of this absolute offset and
+of which of the two state-coupled policies consumes the observer.
 
 \begin{table}[!htbp]
 \centering
-\caption{Endpoint-error feedback controller (iii) on the focused
+\caption{Endpoint-error sensorimotor policy (iii) on the focused
 6-cell grid under the $H{=}8$ forward model. Mean $\min$-tip (m) over
 10 episodes per cell. The learned column uses the same Stage A
 predictor trained on the joint-PD $K^{\star}_{\mathrm{cl}}$ labels
@@ -917,14 +918,14 @@ differences disappear from task metrics. Closed-loop state-estimation
 benchmarks should use controllers that are demonstrably state-
 coupled (the joint-PD+IK family used here works); a BC policy that
 generalises poorly per target is effectively open-loop in the state
-channel even though it nominally consumes a state vector. The three hand-designed / learned controllers in this paper --- a
-joint-space feedback law (ii), a task-level endpoint-error feedback
-law (iii), and a behaviour-cloned policy (iv) --- span the
-controller-coupling axis along which we vary how strongly the
-observer output reaches muscle commands. Both hand-designed
-controllers exhibit the same C3 / C4 signature on $H{=}8$ at the
-$d{=}0$ cells: $K{=}0$ beats $K{=}1$ by $-27.6$\,cm under joint-PD
-and by $-18.5$\,cm under endpoint-feedback, and the
+channel even though it nominally consumes a state vector. The three downstream policies in this paper --- a joint-space
+feedback controller (ii), an endpoint-error sensorimotor policy
+(iii), and a behaviour-cloned policy (iv) --- span the controller-
+coupling axis along which we vary how strongly the observer output
+reaches muscle commands. Both state-coupled policies (ii)~and (iii)
+exhibit the same C3 / C4 signature on $H{=}8$ at the $d{=}0$ cells:
+$K{=}0$ beats $K{=}1$ by $-27.6$\,cm under joint-PD and by
+$-18.5$\,cm under the endpoint-error policy, and the
 $K^{\star}_{\mathrm{cl}}$-trained predictor outputs $K\!\approx\!0.02$
 under both. The behaviour-cloned policy, by contrast, washes out
 the difference. We frame this as a controller-design question, not
