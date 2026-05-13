@@ -558,7 +558,25 @@ moment-arm matrix (the dense form of MuJoCo's sparse
 $\alpha\!=\!5$ is a scalar action scale. Tuned gains:
 $K_p\!=\!30$, $K_d\!=\!3$.
 
-\emph{(iii)~Behaviour-cloned MLP.}
+\emph{(iii)~Endpoint-error feedback.}
+A task-level analogue of (ii) that skips the IK pre-step and drives
+the tip by a Cartesian PD law on the estimated tip-to-target error,
+projected back to muscle space through the tip Jacobian and the
+moment-arm matrix:
+\begin{align}
+u_{\mathrm{tip}}   &= K_{p,e}\,(p^{\star}-\hat p_{\mathrm{tip}}) - K_{d,e}\,J\hat{\dot q},\\
+u_{\mathrm{joint}} &= J^{\top}\,u_{\mathrm{tip}},\\
+u_{\mathrm{muscle}}&= \mathrm{clip}\!\bigl(\alpha\,\mathrm{ReLU}(M\,u_{\mathrm{joint}}),\,0,\,1\bigr),
+\label{eq:endpoint_fb}
+\end{align}
+with $K_{p,e}{=}30$, $K_{d,e}{=}3$, $\alpha{=}5$ and $J$ the tip-
+site positional Jacobian captured at the env's neutral pose. We use
+this as a transparent task-level feedback law that lets the observer
+output flow directly to muscle commands without an IK pre-step; the
+$J^{\top}$-style projection is the classic Jacobian-transpose method
+and is not optimal in any LQR / OFC sense.
+
+\emph{(iv)~Behaviour-cloned MLP.}
 A two-hidden-layer (256 unit) sigmoid policy is trained on 30
 scripted IK demonstrations in the spirit of \cite{pomerleau1988alvinn};
 we deliberately do not iterate the demonstrator with
@@ -566,7 +584,7 @@ DAgger~\cite{ross2011dagger} and report the resulting open-loop
 collapse in Sec.\,\ref{sec:results-3.4}. We treat the
 behaviour-cloned policy not as a neural-circuit model but as a
 \emph{minimal learned sensorimotor policy}, a learned counterpart
-to the hand-designed joint-space feedback in (ii), to test whether
+to the hand-designed feedback laws in (ii)--(iii), to test whether
 observer-dependent state estimates remain behaviourally relevant
 when the downstream mapping is learned from demonstrations rather
 than written as an explicit feedback law.
@@ -807,6 +825,44 @@ all 6 cells the closed-loop-aware predictor closes 40--60\% of the
 single-step paradigm gap; mean improvement vs.\ the open-loop-oracle
 predictor is $-16$\,cm. No architectural changes were made.
 
+\noindent\textbf{Transfer to a second hand-designed controller.}
+Repeating the $H{=}8$ closed-loop sweep with the task-level endpoint-
+error feedback controller~(iii) yields the same C3 signature in a
+weaker form (Table~\ref{tab:endpoint_feedback}): $K{=}0$ beats $K{=}1$
+by $-18.5$ to $-18.7$\,cm at all three $d{=}0$ cells and the two are
+within $\pm 3.2$\,cm at $d{=}18$. The $K^{\star}_{\mathrm{cl}}$-trained
+predictor outputs $K\!\approx\!0.018$--$0.025$, matching its
+joint-PD-trained behaviour. Endpoint-feedback's $K{=}0$ baseline is
+$\sim\!11$\,cm worse in absolute terms than joint-PD's
+($0.60$\,m vs $0.49$\,m) because the Jacobian-transpose projection
+is only locally correct and does not navigate around joint limits;
+the structural finding (forward-model supervision changes which $K$
+the controller wants) is independent of this absolute offset.
+
+\begin{table}[!htbp]
+\centering
+\caption{Endpoint-error feedback controller (iii) on the focused
+6-cell grid under the $H{=}8$ forward model. Mean $\min$-tip (m) over
+10 episodes per cell. The learned column uses the same Stage A
+predictor trained on the joint-PD $K^{\star}_{\mathrm{cl}}$ labels
+from C4 (Sec.\,\ref{sec:results-3.6}).}
+\label{tab:endpoint_feedback}
+\setlength{\tabcolsep}{6pt}
+\footnotesize
+\begin{tabular}{@{}ll ccc@{}}
+\toprule
+noise & delay & $K{=}0$ & $K{=}1$ & learned-cl ($\bar K\!\approx\!0.02$) \\
+\midrule
+none  & 0  & 0.604 & 0.789 & 0.754 \\
+none  & 18 & 0.647 & 0.631 & 0.687 \\
+high  & 0  & 0.604 & 0.789 & 0.693 \\
+high  & 18 & 0.647 & 0.614 & 0.652 \\
+xhigh & 0  & 0.604 & 0.791 & 0.656 \\
+xhigh & 18 & 0.647 & 0.628 & 0.628 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 A transfer slice on the variable-target variant
 \texttt{myoArmReachRandom-v0} (Appendix~\ref{app:reach-random})
 fully replicates C1 ($K^{\star}_{\mathrm{ol}}{<}1$ in 18\,/\,72 cells
@@ -861,15 +917,17 @@ differences disappear from task metrics. Closed-loop state-estimation
 benchmarks should use controllers that are demonstrably state-
 coupled (the joint-PD+IK family used here works); a BC policy that
 generalises poorly per target is effectively open-loop in the state
-channel even though it nominally consumes a state vector. The two
-controllers in this paper --- a hand-designed joint-space feedback
-law and a learned sensorimotor policy --- span two corners of a
-broader controller-coupling axis; a natural third class to test is
-a task-level \emph{endpoint-error feedback controller} that drives
-muscle commands from the estimated tip-to-target error directly,
-which would interpolate between the joint-level feedback that
-strongly couples to the estimator output and the learned policy
-that does not. We frame this as a controller-design question, not
+channel even though it nominally consumes a state vector. The three hand-designed / learned controllers in this paper --- a
+joint-space feedback law (ii), a task-level endpoint-error feedback
+law (iii), and a behaviour-cloned policy (iv) --- span the
+controller-coupling axis along which we vary how strongly the
+observer output reaches muscle commands. Both hand-designed
+controllers exhibit the same C3 / C4 signature on $H{=}8$ at the
+$d{=}0$ cells: $K{=}0$ beats $K{=}1$ by $-27.6$\,cm under joint-PD
+and by $-18.5$\,cm under endpoint-feedback, and the
+$K^{\star}_{\mathrm{cl}}$-trained predictor outputs $K\!\approx\!0.02$
+under both. The behaviour-cloned policy, by contrast, washes out
+the difference. We frame this as a controller-design question, not
 as an optimality claim: we do not solve a Riccati or LQR problem
 and do not call any of these controllers ``optimal''.
 
@@ -881,12 +939,7 @@ rollouts); a differentiable surrogate would scale this far better.
 (b)~Our learned predictor is condition-level (no per-step state coupling
 beyond the sigma vector and delay scalar); a state-aware Stage~B variant
 we explored briefly did not beat the condition-level baseline because of
-labelling noise, but a closed-loop differentiable label might. A
-natural complementary axis on the controller side is to add an
-\emph{endpoint-error feedback controller} as a third class beside
-joint-space feedback and behaviour-cloned policy --- a task-level
-hand-designed feedback law from estimated tip-to-target error to
-muscle commands --- which we leave to follow-up work. (c)~Results
+labelling noise, but a closed-loop differentiable label might. (c)~Results
 cover two MyoSuite reach variants --- fixed and random targets,
 sharing the 34-muscle arm and 600-step horizon
 (Appendix~\ref{app:reach-random}). C1 replicates fully on the

@@ -13,6 +13,9 @@ from myoarm_fse.controllers.bc import (
     state_feature_indices,
     train_bc_policy,
 )
+from myoarm_fse.controllers.endpoint_feedback import (
+    EndpointErrorFeedbackController,
+)
 from myoarm_fse.controllers.heuristic_reach import HeuristicReachController
 from myoarm_fse.controllers.hold import HoldController
 from myoarm_fse.controllers.joint_pd import JointSpacePDController
@@ -24,6 +27,7 @@ __all__ = [
     "BCPolicy",
     "BCTrainConfig",
     "Controller",
+    "EndpointErrorFeedbackController",
     "HeuristicReachController",
     "HoldController",
     "JointSpacePDController",

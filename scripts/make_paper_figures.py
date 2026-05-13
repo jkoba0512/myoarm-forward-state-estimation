@@ -117,8 +117,8 @@ def _fbool(s: object) -> float:
 
 
 def fig_F1_system_overview() -> None:
-    fig, ax = plt.subplots(figsize=(7, 3.2))
-    ax.set_xlim(0, 14); ax.set_ylim(0, 6.5); ax.axis("off")
+    fig, ax = plt.subplots(figsize=(8.8, 3.8))
+    ax.set_xlim(0, 16); ax.set_ylim(0, 7.0); ax.axis("off")
 
     def box(x, y, w, h, label, color="#f0f0f0"):
         ax.add_patch(patches.FancyBboxPatch(
@@ -128,31 +128,38 @@ def fig_F1_system_overview() -> None:
         ax.text(x + w / 2, y + h / 2, label,
                 ha="center", va="center", fontsize=9)
 
-    def arrow(x1, y1, x2, y2, label=""):
+    def arrow(x1, y1, x2, y2, label="", label_dy=0.22):
         ax.annotate("", xy=(x2, y2), xytext=(x1, y1),
                     arrowprops=dict(arrowstyle="->", lw=1.0, color="#444"))
         if label:
-            ax.text((x1 + x2) / 2, (y1 + y2) / 2 + 0.18, label,
-                    ha="center", fontsize=7, style="italic")
+            ax.text((x1 + x2) / 2, (y1 + y2) / 2 + label_dy, label,
+                    ha="center", va="center", fontsize=7, style="italic",
+                    bbox=dict(facecolor="white", edgecolor="none", pad=0.8))
 
     # Boxes
-    box(0.2, 4.2, 2.5, 1.0, "MuJoCo / MyoSuite\n(true state)", "#dddddd")
-    box(3.4, 4.2, 2.5, 1.0, "Observation\nwrappers\n(noise + delay)")
-    box(6.6, 4.2, 2.5, 1.0, "Kalman estimator\nx_pred + K·(y - x̂)", "#cfeacf")
-    box(9.8, 4.2, 2.5, 1.0, "Controller\n(joint-PD / BC)", "#c8d8ee")
+    box(0.3, 4.25, 2.7, 1.05, "MuJoCo / MyoSuite\n(true state)", "#dddddd")
+    box(4.1, 4.25, 2.7, 1.05, "Observation\nwrappers\n(noise + delay)")
+    box(7.9, 4.25, 2.7, 1.05, "State observer\nxpred + K*(y - xpred)", "#cfeacf")
+    box(11.7, 4.25, 2.7, 1.05, "Controller\n(joint-PD / BC)", "#c8d8ee")
     # Forward model bypass
-    box(6.6, 2.0, 2.5, 1.0, "Forward model\n(residual MLP)", "#fde6c4")
+    box(7.9, 1.95, 2.7, 1.05, "Forward model\n(residual MLP)", "#fde6c4")
     # Action loop
-    arrow(2.7, 4.7, 3.4, 4.7, "true state")
-    arrow(5.9, 4.7, 6.6, 4.7, "y_obs")
-    arrow(9.1, 4.7, 9.8, 4.7, "x_est")
-    arrow(11.0, 4.2, 11.0, 1.0)
-    arrow(11.0, 1.0, 1.4, 1.0)
-    arrow(1.4, 1.0, 1.4, 4.2, "u (excitation)")
-    arrow(7.8, 3.0, 7.8, 4.2)
-    arrow(7.8, 4.2, 7.8, 3.0)  # double-headed visual
+    arrow(3.0, 4.78, 4.1, 4.78, "true state", label_dy=0.32)
+    arrow(6.8, 4.78, 7.9, 4.78, "y_obs", label_dy=0.32)
+    arrow(10.6, 4.78, 11.7, 4.78, "x_est", label_dy=0.32)
+    arrow(13.05, 4.25, 13.05, 0.95)
+    arrow(13.05, 0.95, 1.55, 0.95)
+    arrow(1.55, 0.95, 1.55, 4.25, "u (excitation)", label_dy=0.42)
+    arrow(8.75, 4.25, 8.75, 3.0)
+    arrow(9.75, 3.0, 9.75, 4.25)
+    ax.text(8.45, 3.65, "input:\nxhat_t, u_t",
+            ha="right", va="center", fontsize=7, style="italic",
+            bbox=dict(facecolor="white", edgecolor="none", pad=0.8))
+    ax.text(10.05, 3.65, "output:\nxpred_(t+1)",
+            ha="left", va="center", fontsize=7, style="italic",
+            bbox=dict(facecolor="white", edgecolor="none", pad=0.8))
 
-    ax.text(7.0, 6.0, "Closed loop: estimator output drives controller; "
+    ax.text(8.0, 6.25, "Closed loop: estimator output drives controller; "
             "true state is oracle only",
             fontsize=8, style="italic", ha="left")
     _save(fig, "F1_system_overview")
@@ -203,7 +210,7 @@ def fig_F2_stress_oracle() -> None:
                         color="white" if v > 0.55 else "black", fontsize=8)
     axes[0].set_ylabel("Observation delay (steps)")
     fig.colorbar(im, ax=axes, label="Oracle K*", shrink=0.85, pad=0.02)
-    fig.suptitle("Oracle Kalman gain across the stress grid by forward-model "
+    fig.suptitle("Oracle correction gain across the stress grid by forward-model "
                  "supervision",
                  y=1.04, fontsize=10)
     _save(fig, "F2_stress_oracle_K")

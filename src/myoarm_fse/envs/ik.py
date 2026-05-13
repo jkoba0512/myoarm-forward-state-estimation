@@ -195,3 +195,26 @@ def actuator_moment_dense(env: Any) -> np.ndarray:
         vals = data[start : start + n]
         out[i, cols] = vals
     return out
+
+
+def tip_jacobian_dense(env: Any) -> np.ndarray:
+    """Return the tip-site positional Jacobian as ``(3, nv)``.
+
+    The Jacobian is computed at the env's current pose; caller is
+    responsible for ``mj_forward`` if the pose matters. Used by the
+    endpoint-error feedback controller to transform task-space (tip)
+    commands into joint-space velocities via :math:`J^\\top`.
+    """
+    uw = env.unwrapped
+    m = uw.mj_model
+    d = uw.mj_data
+    tip_sids = uw.tip_sids
+    if len(tip_sids) != 1:
+        raise ValueError(
+            f"expected exactly one tip site, got tip_sids={tip_sids!r}"
+        )
+    tip_sid = int(tip_sids[0])
+    jacp = np.zeros((_CART_DIM, m.nv), dtype=np.float64)
+    jacr = np.zeros((_CART_DIM, m.nv), dtype=np.float64)
+    mujoco.mj_jacSite(m, d, jacp, jacr, tip_sid)
+    return jacp.copy()

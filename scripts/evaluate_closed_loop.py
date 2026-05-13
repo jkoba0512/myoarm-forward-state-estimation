@@ -27,6 +27,7 @@ import yaml
 
 from myoarm_fse.controllers import (
     BCController,
+    EndpointErrorFeedbackController,
     JointSpacePDController,
     load_bc_policy,
     make_controller,
@@ -34,7 +35,11 @@ from myoarm_fse.controllers import (
 from myoarm_fse.data.rollout import EpisodeSpec
 from myoarm_fse.envs.actions import ActionAdapter, detect_action_dim
 from myoarm_fse.envs.factory import make_env
-from myoarm_fse.envs.ik import actuator_moment_dense, solve_ik
+from myoarm_fse.envs.ik import (
+    actuator_moment_dense,
+    solve_ik,
+    tip_jacobian_dense,
+)
 from myoarm_fse.envs.noise import SignalDependentMotorNoise
 from myoarm_fse.envs.state import StateSpec
 from myoarm_fse.envs.targets import TargetSet
@@ -366,6 +371,29 @@ def main(argv: list[str] | None = None) -> Path:
                                 )),
                             )
                             controller.reset(seed=controller_seed)
+                        elif controller_spec.get("name") == "endpoint_feedback":
+                            # Capture the tip Jacobian and the moment-arm
+                            # matrix at the env's current (neutral, post-
+                            # reset) pose. No IK pre-step is needed.
+                            import mujoco as _mj
+                            env.reset()
+                            _mj.mj_forward(env.unwrapped.mj_model,
+                                           env.unwrapped.mj_data)
+                            jacobian = tip_jacobian_dense(env)
+                            moment_arm = actuator_moment_dense(env)
+                            controller = EndpointErrorFeedbackController(
+                                action_dim=action_dim,
+                                target_pos=target_pos,
+                                jacobian=jacobian,
+                                moment_arm=moment_arm,
+                                Kp=float(controller_spec.get("Kp", 30.0)),
+                                Kd=float(controller_spec.get("Kd", 3.0)),
+                                action_scale=float(controller_spec.get(
+                                    "action_scale", 5.0
+                                )),
+                            )
+                            controller.reset(seed=controller_seed)
+                            ik_info = None
                         else:
                             controller = make_controller(
                                 controller_spec,
