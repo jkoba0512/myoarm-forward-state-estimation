@@ -1,12 +1,16 @@
 # myoarm-forward-state-estimation
 
-Forward-model prediction and Kalman-like state estimation for the MyoSuite
+Forward-model-based predictive state estimation for the MyoSuite
 myoArm reaching task under sensorimotor delay, observation noise, and
-signal-dependent motor noise.
+signal-dependent motor noise. The estimator is a minimal observer
+that combines forward-model prediction with a scalar sensory
+prediction-error correction gain $K$; it uses an innovation-update
+form structurally familiar from Kalman filtering but does not
+propagate covariances or compute an optimal Kalman gain.
 
 This repository accompanies the manuscript
 
-> **When Should a Kalman Filter Trust Its Forward Model?
+> **When Should a Predictive State Observer Trust Its Forward Model?
 > Closed-Loop Evidence from a Muscle-Driven Reaching Task**
 > Jun Kobayashi, Kyushu Institute of Technology.
 
@@ -14,9 +18,9 @@ Compiled manuscript: [`paper/main.pdf`](paper/main.pdf) (11 pages, IEEE TNNLS dr
 
 ## What the paper claims
 
-A learned condition-level Kalman gain predictor for the myoArm reaching
-task behaves very differently depending on which *oracle* it is trained
-against:
+A learned condition-level correction-gain predictor for the myoArm
+reaching task behaves very differently depending on which *oracle* it
+is trained against:
 
 - **C1**: the open-loop oracle $K^{\star}_{\mathrm{ol}}$ (minimises
   estimation error $\|\hat x - x\|^2$) collapses to $K{=}1$ at long
@@ -40,7 +44,7 @@ against:
   Appendix E demonstrates the transfer to a variable-target variant.
 
 The take-away: **what you train the gain predictor against matters at
-least as much as the predictor architecture**. Learned-Kalman-gain
+least as much as the predictor architecture**. Learned-correction-gain
 papers should specify the oracle target explicitly and report
 closed-loop, not just open-loop, task error.
 
@@ -130,7 +134,7 @@ src/myoarm_fse/    Python package
   envs/            Env factory, state schema, observation wrappers
   data/            Episode logger, rollout helpers
   models/          Forward-model architecture, training, dataset
-  estimators/      Kalman filter, learned-gain predictor (Stage A / B)
+  estimators/      Predictive state observer, learned-gain predictor (Stage A / B). Python module names retain `kalman` for historical reasons; the conceptual entity is a forward-model-based observer.
   controllers/     Heuristic, joint-PD+IK, behaviour-cloning
   evaluation/      Open-loop and closed-loop evaluators
   metrics/         Reaching metrics
@@ -151,9 +155,10 @@ These are documented in `docs/02_InitialImplementationPlan.md`:
 - `true_state` is never passed to the controller in closed loop. Only
   estimator output flows downstream; the true state is logged for
   evaluation only.
-- The fixed-lag Kalman estimator uses a length-$(d{+}1)$ ring buffer and
-  re-rolls past estimates forward via the learned forward model — it is
-  the standard buffered RTS smoother specialised to a scalar gain.
+- The fixed-lag predictive state observer uses a length-$(d{+}1)$ ring
+  buffer and re-rolls past estimates forward via the learned forward
+  model — it is the buffered RTS smoother form specialised to a single
+  scalar correction gain (no covariance propagation).
 - The state vector is the 83-dim flat schema $[q, \dot q, a, p_{\mathrm{tip}},
   p_{\mathrm{tgt}}, e]$; the controllers see this state through the
   estimator only.
@@ -173,7 +178,7 @@ These are documented in `docs/02_InitialImplementationPlan.md`:
 
 ```bibtex
 @unpublished{kobayashi2026myoarmfse,
-  title  = {When Should a Kalman Filter Trust Its Forward Model?
+  title  = {When Should a Predictive State Observer Trust Its Forward Model?
             Closed-Loop Evidence from a Muscle-Driven Reaching Task},
   author = {Kobayashi, Jun},
   year   = {2026},

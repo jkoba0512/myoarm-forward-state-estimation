@@ -30,7 +30,7 @@
 
 \begin{document}
 
-\title{When Should a Kalman Filter Trust Its Forward Model?\\
+\title{When Should a Predictive State Observer Trust Its Forward Model?\\
 Closed-Loop Evidence from a Muscle-Driven Reaching Task}
 
 \author{Jun~Kobayashi%
@@ -45,77 +45,87 @@ Closed-Loop Evidence from a Muscle-Driven Reaching Task}
 
 \markboth{IEEE Transactions on Neural Networks and Learning Systems,
 \,vol.~X,\,no.~X,\,Month~YYYY}%
-{J.~Kobayashi: When Should a Kalman Filter Trust Its Forward Model?}
+{J.~Kobayashi: When Should a Predictive State Observer Trust Its Forward Model?}
 
 \maketitle
 
 \begin{abstract}
-We study how a learned forward model and a learned Kalman gain interact
-in a closed-loop muscle-driven reaching task. A residual MLP forward
-model and a fixed-lag Kalman filter blend predictions with delayed
-noisy observations of a 34-muscle MyoSuite arm; a small condition-level
-predictor maps (noise, delay, controller) to a scalar gain $K$ trained
-against an open-loop oracle. Plugging the estimator into a joint-space
-PD controller with an inverse-kinematics target reveals a chain of
-findings. \emph{First}, with a single-step-supervised forward model the
-learned predictor matches the oracle and beats observation-only
-($K{=}1$) by $8.6$\,cm at the low-noise large-delay cell where blending
-matters most. \emph{Second}, behaviour-cloned controllers reach the
-target more reliably but consume the estimator output weakly enough
-that the per-cell gap collapses to under 3\,cm, suggesting that
-closed-loop estimator benchmarks need state-coupled controllers.
-\emph{Third}, retraining the forward model with $H$-step rollout
-supervision ($H{\in}\{4,8\}$) reduces $h{=}50$ tip-prediction error by
-54--65\% and shifts the closed-loop optimum to prediction-only
-($K{=}0$), which now beats $K{=}1$ by 12--24\,cm across the entire
-grid, while the condition-level predictor still outputs
-$K\!\approx\!1$ because the open-loop oracle it was trained against
-never selects $K{=}0$. \emph{Fourth}, redefining the predictor's
-training oracle in terms of closed-loop task error rather than
-open-loop estimation accuracy moves its output to
-$K\!\approx\!0.02$, matches the $K{=}0$ baseline within $1.5$\,cm at
-delay $\geq 18$\,steps, and closes 40--60\% of the gap at zero delay
---- with no change to the predictor architecture. The right Kalman
-gain in closed loop therefore depends not only on the noise and delay
-regime but on \emph{what objective the predictor was trained against},
-and learned-Kalman-gain papers should specify the oracle choice
+We study how a learned forward model and a learned sensory
+prediction-error correction gain interact in a closed-loop muscle-
+driven reaching task. A residual MLP forward model and a fixed-lag
+predictive state observer combine forward-model predictions with
+delayed, noisy observations of a 34-muscle MyoSuite arm via a scalar
+correction gain $K$; a small condition-level predictor maps
+(noise, delay, controller) to that $K$ and is trained against an
+open-loop oracle. Plugging the observer into a joint-space PD
+controller with an inverse-kinematics target reveals a chain of
+findings. \emph{First}, with a single-step-supervised forward model
+the learned predictor matches the oracle and beats observation-only
+($K{=}1$) by $8.6$\,cm at the low-noise large-delay cell where
+blending matters most. \emph{Second}, behaviour-cloned controllers
+reach the target more reliably but consume the observer output
+weakly enough that the per-cell gap collapses to under 3\,cm,
+suggesting that closed-loop state-estimation benchmarks need
+state-coupled controllers. \emph{Third}, retraining the forward
+model with $H$-step rollout supervision ($H{\in}\{4,8\}$) reduces
+$h{=}50$ tip-prediction error by 54--65\% and shifts the closed-loop
+optimum to prediction-only ($K{=}0$), which now beats $K{=}1$ by
+12--24\,cm across the entire grid, while the condition-level
+predictor still outputs $K\!\approx\!1$ because the open-loop oracle
+it was trained against never selects $K{=}0$. \emph{Fourth},
+redefining the predictor's training oracle in terms of closed-loop
+task error rather than open-loop estimation accuracy moves its
+output to $K\!\approx\!0.02$, matches the $K{=}0$ baseline within
+$1.5$\,cm at delay $\geq 18$\,steps, and closes 40--60\% of the gap
+at zero delay --- with no change to the predictor architecture. The
+right sensory prediction-error correction gain in closed loop
+therefore depends not only on the noise and delay regime but on
+\emph{what objective the predictor was trained against}, and
+learned-correction-gain papers should specify the oracle choice
 explicitly.
 \end{abstract}
 
 \begin{IEEEkeywords}
-Forward model, Kalman filter, state estimation, multi-step rollout
-supervision, behaviour cloning, closed-loop control, MyoSuite, muscle-driven
-reaching.
+Forward model, predictive state observer, sensory prediction-error
+correction, learned correction gain, multi-step rollout supervision,
+behaviour cloning, closed-loop control, MyoSuite, muscle-driven reaching.
 \end{IEEEkeywords}
 
 % ============================================================
 \section{Introduction}
 % ============================================================
 
-State estimation in muscle-driven manipulation faces three coupled challenges:
-sensorimotor delay, observation noise, and signal-dependent motor noise. A
-common engineering response is the Kalman filter, which blends a forward
-model's prediction with the current observation via a gain $K\!\in\![0,1]$:
-$K{=}0$ trusts the model, $K{=}1$ trusts the sensor, and the literature on
-adaptive Kalman filters has produced many ways to choose $K$ from the
-estimated noise covariance \cite{kalman1960,mehra1970,anderson1979optimal}.
-The internal-model view of biological motor control casts the same
-relationship as a forward-model / sensory-feedback combination
-\cite{bernstein1967,wolpert2000}.
-In this paper we ask a different question: \emph{what does the optimal $K$
-look like in closed loop, and does the way we train a learned $K$-predictor
-match it?}
+State estimation in muscle-driven manipulation faces three coupled
+challenges: sensorimotor delay, observation noise, and signal-
+dependent motor noise. The internal-model view of biological motor
+control answers these with a \emph{forward-model-based predictive
+state observer}: an internal forward model uses efference copy to
+predict the next state, and the observer corrects that prediction by
+a scalar weight $K\!\in\![0,1]$ on the sensory prediction error
+\cite{bernstein1967,wolpert2000}. $K{=}0$ trusts the forward
+prediction (efference copy); $K{=}1$ trusts the sensor; intermediate
+$K$ implements a sensory-prediction-error correction. The
+innovation-update form is structurally familiar from Kalman
+filtering, where the gain is derived from propagated covariance
+estimates \cite{kalman1960,mehra1970,anderson1979optimal}; we do
+\emph{not} propagate covariances and do not claim to implement a
+full Kalman filter (Sec.\,\ref{sec:method-kalman}). Instead we
+treat $K$ as a single scalar that controls how strongly sensory
+prediction error corrects the current state estimate, and ask
+\emph{what its optimum looks like in closed loop, and whether the
+way we train a learned $K$-predictor matches it.}
 
 We attack the question on a 34-muscle MyoSuite reaching arm
 \cite{caggiano2022myosuite} running in the MuJoCo simulator
-\cite{todorov2012mujoco}. We learn a residual-MLP forward model from rollouts,
-use it inside a fixed-lag Kalman filter that handles a configurable
-observation delay ($d{=}0$--$36$\,steps) and configurable per-field
-Gaussian noise, sweep a $K{\in}\{0,0.25,0.5,0.75,1.0\}$ grid across noise
-and delay to define an oracle gain $K^{\star}$ per condition, and train a
+\cite{todorov2012mujoco}. We learn a residual-MLP forward model from
+rollouts, use it inside a fixed-lag predictive state observer that
+handles a configurable observation delay ($d{=}0$--$36$\,steps) and
+configurable per-field Gaussian noise, sweep a
+$K{\in}\{0,0.25,0.5,0.75,1.0\}$ grid across noise and delay to define
+an oracle correction gain $K^{\star}$ per condition, and train a
 small condition-level predictor on those oracle labels. A separate
-joint-space PD controller with one-shot inverse-kinematics target then
-\emph{deploys} the estimator in closed loop.
+joint-space PD controller with one-shot inverse-kinematics target
+then \emph{deploys} the observer in closed loop.
 
 Our contributions are summarised in four claims.
 
@@ -154,49 +164,55 @@ structural: the K-curve there jumps sharply from $K{=}0$ to $K{=}0.25$,
 so the predictor's sigmoid asymptote loses $\sim\!0.17$\,m.
 \end{itemize}
 
-Together, C1--C4 say that the optimal closed-loop Kalman gain depends on
-two coupled choices that the literature usually treats as independent:
-the forward model's accuracy over the controller's planning horizon, and
-the oracle the $K$-predictor was trained against. When the open-loop
-oracle and the closed-loop optimum disagree --- as they do for
-multi-step-supervised forward models on this task --- the two pull the
-predictor in opposite directions.
+Together, C1--C4 say that the optimal closed-loop sensory
+prediction-error correction gain depends on two coupled choices that
+the literature usually treats as independent: the forward model's
+accuracy over the controller's planning horizon, and the oracle the
+$K$-predictor was trained against. When the open-loop oracle and the
+closed-loop optimum disagree --- as they do for multi-step-supervised
+forward models on this task --- the two pull the predictor in
+opposite directions.
 
 The rest of the paper is organised as follows.
-Section~\ref{sec:related} positions our work against prior literature on
-adaptive Kalman filtering, forward models in motor control, learned
-dynamics, imitation learning, and muscle-driven simulation.
-Section~\ref{sec:method} describes the task, the forward model and its
-multi-step variant, the fixed-lag Kalman estimator, the three
-controllers, and the evaluation pipeline.
-Section~\ref{sec:results} reports the four claims with the corresponding
-figures.
+Section~\ref{sec:related} positions our work against prior literature
+on adaptive correction gains and Kalman-style updates, forward models
+in motor control, learned dynamics, imitation learning, and muscle-
+driven simulation.
+Section~\ref{sec:method} describes the task, the forward model and
+its multi-step variant, the fixed-lag predictive state observer, the
+three controllers, and the evaluation pipeline.
+Section~\ref{sec:results} reports the four claims with the
+corresponding figures.
 Section~\ref{sec:discussion} discusses the trade-offs and the
-implications for learned adaptive Kalman gains.
+implications for learned correction gains.
 
 % ============================================================
 \section{Related Work}
 \label{sec:related}
 % ============================================================
 
-\noindent\textbf{Adaptive Kalman gains.}
+\noindent\textbf{Adaptive correction gains and Kalman-style updates.}
 The Kalman filter \cite{kalman1960} and its smoothing
 counterpart~\cite{rauch1965} are the textbook framework for combining
 a state-space model with noisy observations under known noise
 covariances. When the covariances are unknown, the classical
 \emph{adaptive Kalman filter} estimates them online from the
 innovation sequence \cite{mehra1970}; the steady-state gain $K$
-then drops out of the covariance estimate. The state-space
-formulation we adopt --- residual MLP for dynamics, fixed-lag
-buffered correction for delays --- is standard textbook
-material~\cite{anderson1979optimal}. The novelty of our setting
-is not in the filter equations but in the choice of $K$: instead of
-deriving $K$ from a noise-covariance estimate, we train a small
-condition-level predictor that maps (controller, $\sigma$, delay) to a
-scalar $K$ supervised against a swept oracle. The contribution we
-report is what happens when that oracle is open-loop versus
-closed-loop, and that distinction is largely absent from the adaptive
-Kalman literature.
+then drops out of the covariance estimate. We adopt the same
+innovation-style update form (residual MLP for dynamics, fixed-lag
+buffered correction for delays) but \emph{do not} propagate
+covariances and do not compute an optimal Kalman gain; the
+state-space formulation is standard textbook material
+\cite{anderson1979optimal} and we treat the result as a predictive
+state observer with a scalar correction gain (Sec.\,\ref{sec:method-kalman}).
+The novelty of our setting is therefore not in the filter equations
+but in the \emph{choice} of $K$: instead of deriving $K$ from a
+noise-covariance estimate, we train a small condition-level predictor
+that maps (controller, $\sigma$, delay) to a scalar $K$ supervised
+against a swept oracle. The contribution we report is what happens
+when that oracle is open-loop versus closed-loop, a distinction
+largely absent from the adaptive-Kalman literature and not natural
+inside the covariance-propagation framing.
 
 \smallskip
 
@@ -228,9 +244,10 @@ planners need predictions that survive being unrolled. Dreamer
 \cite{hafner2020dreamer} backpropagates through imagined trajectories
 in a latent world model, and MBPO \cite{janner2019mbpo} branches
 short model rollouts from real data, formalising ``when to trust your
-model''. We take the same lesson into Kalman filtering: a forward
+model''. We take the same lesson into observer design: a forward
 model that is accurate enough over the controller's planning horizon
-shifts where blending is helpful and where it is harmful.
+shifts where prediction-error correction is helpful and where it is
+harmful.
 
 \smallskip
 
@@ -255,7 +272,7 @@ a 34-muscle reaching arm and a contact-rich set of tasks suitable for
 sensorimotor estimation studies. MyoSuite is increasingly used as a
 testbed for reinforcement-learning controllers; here we use it instead
 to expose the trade-off between forward-model accuracy and the
-training oracle of a learned Kalman gain, a question that the
+training oracle of a learned correction gain, a question that the
 RL-centric literature has not addressed.
 
 % ============================================================
@@ -310,7 +327,7 @@ loop never accesses it (Fig.\,\ref{fig:system}).
 % --- Main horizontal flow ---
 \node[env] (env) {MuJoCo /\\MyoSuite};
 \node[obs, right=of env] (obs) {Obs.\ wrappers\\noise $+$ delay};
-\node[est, right=of obs] (est) {Kalman estimator\\
+\node[est, right=of obs] (est) {State observer\\
         $\hat x_t {=} x_{\mathrm{pred}} {+} K\!\cdot\!(y_t{-}x_{\mathrm{pred}})$};
 \node[ctl, right=of est] (ctl) {Controller\\PD / BC};
 
@@ -360,11 +377,12 @@ loop never accesses it (Fig.\,\ref{fig:system}).
 {\textbf{Closed-loop pipeline.} Each control step, the env's true
 state $x_t$ is filtered through observation wrappers that add
 per-field Gaussian noise and a fixed delay, producing $y_t$. The
-Kalman estimator combines $y_t$ with a one-step prediction
-$x_{\mathrm{pred}}$ produced by the residual-MLP forward model
-$f_\theta(\hat x_{t-1}, u_{t-1})$ via a scalar gain $K\!\in\![0,1]$
+predictive state observer combines $y_t$ with a one-step
+prediction $x_{\mathrm{pred}}$ produced by the residual-MLP forward
+model $f_\theta(\hat x_{t-1}, u_{t-1})$ via a scalar correction gain
+$K\!\in\![0,1]$ on the sensory prediction error $y_t - x_{\mathrm{pred}}$
 (Eq.\,\ref{eq:kalman_update}). The controller consumes only the
-estimator output $\hat x_t$ and emits the next muscle excitation
+observer output $\hat x_t$ and emits the next muscle excitation
 $u_t\!\in\![0,1]^{34}$. The true state $x_t$ is exposed only to the
 offline evaluator (dashed red box); the closed loop never accesses
 it.}
@@ -394,7 +412,7 @@ one-step MSE loss
 \noindent\textbf{Multi-step rollout supervision.} The multi-step
 variant trains $f_\theta$ with an $H$-step rollout loss instead of
 the one-step MSE, where $H$ denotes the training rollout horizon
-(distinct from the Kalman gain $K$ defined in
+(distinct from the correction gain $K$ defined in
 Sec.\,\ref{sec:method-kalman}). For each contiguous trajectory chunk
 $(x_t,u_t,\dots,x_{t+H})$ inside a single source episode, the model
 is unrolled free-running:
@@ -410,15 +428,24 @@ Multi-step rollout supervision has been used to stabilise long-horizon
 predictions in latent-imagination world models~\cite{hafner2020dreamer}
 and in model-based policy optimisation~\cite{janner2019mbpo}, where the
 relevant horizon is the planner's rollout depth rather than the
-estimator's delay; we re-use the technique here to make $f_\theta$
-robust across the Kalman buffer.
+observer's delay; we re-use the technique here to make $f_\theta$
+robust across the observer's buffer rollout.
 
 \noindent We train the same architecture with $H\!\in\!\{1,4,8\}$ on the
 same expanded dataset (51\,k transitions across 106 episodes; see
 Sec.\,\ref{sec:results-3.1}).
 
-\subsection{Fixed-Lag Kalman Estimator}
+\subsection{Fixed-Lag Predictive State Observer}
 \label{sec:method-kalman}
+\emph{We do not claim to implement a full Kalman filter.} The
+observer below uses an innovation-update form structurally familiar
+from Kalman filtering, but it does not propagate covariance matrices
+$P$, $Q$, $R$ and does not compute an optimal Kalman gain. We use
+the form because it provides a controlled, scalar way to vary the
+reliance on sensory feedback versus forward prediction; the gain
+$K\!\in\![0,1]$ here is a \emph{sensory prediction-error correction
+gain}, not a covariance-derived Kalman gain.
+
 The observation pipeline produces $y_t = h(x_{t-d}) + \eta_t$ where
 $h$ is the identity (the state vector and the observation share the
 same schema), $d\!\in\!\mathbb{Z}_{\geq 0}$ is a fixed delay in
@@ -427,7 +454,7 @@ diagonal covariance $\mathrm{diag}(\sigma^2)$. The estimator maintains
 a length-$(d{+}1)$ ring buffer of past one-step estimates
 $(\hat x_{t-d}, \dots, \hat x_{t-1})$ together with the corresponding
 applied actions $(u_{t-d}, \dots, u_{t-1})$. At each step the
-estimator first runs the forward model on every buffered estimate to
+observer first runs the forward model on every buffered estimate to
 obtain a prediction at the present time,
 \begin{equation}
 \tilde x_t = \hat x_{t-1} + f_\theta(\hat x_{t-1}, u_{t-1}),
@@ -443,16 +470,16 @@ applies an element-wise gain $K\!\in\![0,1]^{83}$:
 and finally re-rolls the corrected past estimate forward through the
 buffered actions to obtain the present-time estimate $\hat x_t$.
 Eq.\,(\ref{eq:kalman_update}) collapses to the standard one-step
-Kalman update when $d{=}0$. Throughout the paper $K$ is a scalar
-broadcast across the 83 fields so the gain reduces to a single
-trust knob between forward prediction ($K{=}0$) and observation
-($K{=}1$). This fixed-lag construction is the classical buffered
-Rauch--Tung--Striebel smoother specialised to a scalar
-gain~\cite{rauch1965,anderson1979optimal}.
+innovation update when $d{=}0$. Throughout the paper $K$ is a scalar
+broadcast across the 83 fields so the correction gain reduces to a
+single trust knob between forward prediction ($K{=}0$) and
+observation ($K{=}1$). This fixed-lag construction follows the
+buffered Rauch--Tung--Striebel form~\cite{rauch1965,anderson1979optimal}
+specialised to a scalar gain.
 
-\subsection{Learned Gain Predictor}
+\subsection{Learned Correction-Gain Predictor}
 A small MLP $g_\phi:\mathbb{R}^{8}\!\to\![0,1]$ predicts the scalar
-Kalman gain from a condition feature vector. The input
+correction gain from a condition feature vector. The input
 \begin{equation}
 \xi = \bigl[\,
         \mathrm{onehot}(c)\,;\;
@@ -576,9 +603,9 @@ as the single-step baseline throughout the paper.
 \centering
 \includegraphics[width=\textwidth]{F2_stress_oracle_K.pdf}
 \caption[Open-loop oracle $K^{\star}$ across forward-model variants.]%
-{\textbf{Open-loop oracle Kalman gain $K^{\star}$ as a function of
-observation delay (rows) and noise level (columns), shown for three
-forward-model variants.} Each cell reports the $K\!\in\!\{0,
+{\textbf{Open-loop oracle correction gain $K^{\star}$ as a function
+of observation delay (rows) and noise level (columns), shown for
+three forward-model variants.} Each cell reports the $K\!\in\!\{0,
 0.25, 0.5, 0.75, 1.0\}$ that minimises the open-loop estimation
 error $\|\hat x_t - x_t\|^2$ on a stress-eval grid of $3$ controllers
 $\times\,6$ noise levels $\times\,4$ delays $\times\,5\,K$-values
@@ -868,20 +895,21 @@ cortico-cerebellar loop.
 % ============================================================
 
 We have shown on a muscle-driven reaching task that the closed-loop
-optimal Kalman gain depends on both the forward model's accuracy and
-the oracle used to train any learned gain predictor. Single-step
-supervision of the forward model creates a small but real regime where
-a learned condition-level gain beats observation-only by 8.6\,cm at the
-delay-dominated cell (C2). Multi-step supervision flips the regime:
-$K{=}0$ becomes the best estimator across the focused joint-PD closed-loop
-grid under the $\min$-tip objective, with the gap to $K{=}1$
-growing to 12--24\,cm (C3). Redefining the predictor's training oracle
-in terms of closed-loop task error rather than open-loop estimation
-accuracy aligns the predictor with the new regime and recovers most of
-the gap (C4) with no architectural changes. We argue that learned-
-Kalman-gain papers should specify the oracle target explicitly and that
-closed-loop benchmarks should be a standard part of evaluating adaptive
-state estimators.
+optimal sensory prediction-error correction gain depends on both the
+forward model's accuracy and the oracle used to train any learned
+gain predictor. Single-step supervision of the forward model creates
+a small but real regime where a learned condition-level correction
+gain beats observation-only by 8.6\,cm at the delay-dominated cell
+(C2). Multi-step supervision flips the regime: $K{=}0$ becomes the
+best estimator across the focused joint-PD closed-loop grid under
+the $\min$-tip objective, with the gap to $K{=}1$ growing to
+12--24\,cm (C3). Redefining the predictor's training oracle in
+terms of closed-loop task error rather than open-loop estimation
+accuracy aligns the predictor with the new regime and recovers most
+of the gap (C4) with no architectural changes. We argue that learned-
+correction-gain papers should specify the oracle target explicitly
+and that closed-loop benchmarks should be a standard part of
+evaluating adaptive predictive state observers.
 
 % ============================================================
 \section*{Acknowledgement}
@@ -1017,8 +1045,8 @@ text.
 
 \begin{table}[!htbp]
 \centering
-\caption{Oracle Kalman gain $K^{\star}$ as a function of delay and
-noise under the $H{=}8$ multi-step-supervised forward model
+\caption{Oracle correction gain $K^{\star}$ as a function of delay
+and noise under the $H{=}8$ multi-step-supervised forward model
 (mean over 3 controllers; 72 conditions total). 27 of 72 cells
 require $K^{\star}{<}1$.}
 \label{tab:oracle_K8}
@@ -1041,7 +1069,7 @@ delay & none & low & medium & high & vhigh & xhigh \\
 \label{app:closed-loop-sweep}
 
 Table~\ref{tab:closed_K_sweep} reports the closed-loop $\min$-tip-to-
-target error per cell as a function of the (fixed) Kalman gain $K$,
+target error per cell as a function of the (fixed) correction gain $K$,
 under the $H{=}8$ forward model and the joint-PD controller (10
 episodes per cell). The $K$-sweep is the basis of the closed-loop
 oracle $K^{\star}_{\mathrm{cl}}$ defined in Sec.\,\ref{sec:results-3.6}.
@@ -1060,9 +1088,9 @@ the same predictor matches the $K{=}0$ baseline within 1.5\,cm.
 \begin{table}[!htbp]
 \centering
 \caption{Closed-loop $\min$-tip error (m) per cell across the
-$K$-sweep under the $H{=}8$ forward model and the joint-PD
-controller. Each cell averages 10 episodes. Bold marks the per-cell
-minimum.}
+$K$-sweep (correction gain) under the $H{=}8$ forward model and the
+joint-PD controller. Each cell averages 10 episodes. Bold marks the
+per-cell minimum.}
 \label{tab:closed_K_sweep}
 \footnotesize
 \setlength{\tabcolsep}{4pt}
