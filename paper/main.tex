@@ -68,18 +68,19 @@ tip\_pos, and reach\_err sensory channels.
 Approximation (SPSA) updates the meta-parameters $\beta$ from the
 per-episode reaching outcome. Plugging this observer into a
 joint-space PD controller reveals four findings. \emph{First},
-default within-trial reliability adaptation produces field-wise
-gains $K_f\!\in\![0.3,\,0.98]$ across the focused noise--delay grid
-(qvel most-suppressed, qpos / act / tip\_pos / reach\_err close to
-$K{=}1$ at delay-$0$); under a multi-step ($H{=}8$) supervised
+default within-trial reliability adaptation produces strongly
+field-heterogeneous intermediate-to-high gains rather than the
+task-optimal $K{=}0$; under a multi-step ($H{=}8$) supervised
 forward model whose closed-loop optimum is $K{=}0$, this rule is
 structurally misaligned and trails $K{=}0$ by $23$--$29$\,cm. \emph{Second}, across-trial SPSA on a single delay-$18$ cell
 \emph{closes most of the default-reliability gap on that cell}:
-the per-iter outcome smoothed over the last $20$ iterations reaches
-the $K{=}0$ baseline ($\approx\!0.49$\,m vs $0.50$\,m), while a
-fresh evaluation deploying the final $\beta$ on independent
-episodes leaves a residual of $\sim\!6$\,cm. Field-wise $K$
-specialises: qpos takes both the most-negative intercept,
+deploying the trained $\beta$ on independent episodes improves
+$\min$-tip from $0.77$\,m (default reliability) to $0.56$\,m
+against the $K{=}0$ baseline of $0.50$\,m, recovering about
+$17$ of the $23$\,cm gap; the smoothed training trajectory itself
+briefly reaches the $K{=}0$ level ($\approx\!0.49$\,m last-$20$-iter
+mean). Field-wise $K$ specialises: qpos takes both the
+most-negative intercept,
 $\beta_{0,\mathrm{qpos}}\!\approx\!-1.5$, and the steepest slope,
 $\beta_{1,\mathrm{qpos}}\!\approx\!+0.9$. The third and fourth
 findings expose the \emph{boundary conditions} of this single-
@@ -174,10 +175,11 @@ Our contributions are summarised in four claims.
 \item \textbf{C1.} \emph{Default within-trial reliability adaptation
 is sensible but task-misaligned.} With $\beta_{0,f}\!=\!0$ and
 $\beta_{1,f}\!=\!0.5$ (a deliberately neutral prior), the
-within-trial rule produces strongly field-heterogeneous gains
-$K_f\!\in\![0.31,\,0.98]$ across the focused $3$~noise
-$\times\,2$~delay grid (qvel most-suppressed; qpos / act /
-tip\_pos / reach\_err close to $K{=}1$ at delay-$0$). Under the
+within-trial rule produces strongly field-heterogeneous
+intermediate-to-high gains rather than the task-optimal $K{=}0$;
+qvel is the only consistently suppressed field, while other
+channels often remain near sensor-trusting values
+(Table~\ref{tab:default_kf}). Under the
 $H{=}8$ forward model on this task, however, the closed-loop oracle
 $K^{\star}_{\mathrm{cl}}$ is $K{=}0$ at every cell, so default
 reliability adaptation trails $K{=}0$ by $23$--$29$\,cm in
@@ -881,10 +883,12 @@ reach-error channel innovation-reactive. Field specialisation
 emerges directly from outcome feedback, with no per-field oracle.
 
 The key implication is that the agent does not need an oracle on
-$K^{\star}_{\mathrm{cl}}$: from the same set of per-episode reach
-outcomes a biological agent would have access to, SPSA on a $10$-
-parameter $\beta$ is sufficient to converge to the level of the
-closed-loop oracle within $1$\,cm on a single training cell.
+$K^{\star}_{\mathrm{cl}}$: from per-episode reach outcomes alone,
+$10$-parameter SPSA on $\beta$ recovers about $17$ of the $23$\,cm
+default-reliability vs $K{=}0$ gap on a single training cell
+($0.77$\,m $\to\,0.56$\,m deployed, against $K{=}0$ at $0.50$\,m),
+with the smoothed training trajectory briefly reaching the $K{=}0$
+level.
 
 \begin{figure}[t]
 \centering
@@ -955,8 +959,13 @@ is therefore not a failure of outcome adaptation itself --- the
 single-cell run of C2 converged --- but evidence that the
 parameterisation, a single global $\beta\!\in\!\mathbb{R}^{10}$,
 is underpowered when the reliability geometry varies across cells.
-A context-conditioned $\beta$ (predicted from $(\sigma, d)$ or
-from running innovation statistics) is the natural next model.
+A natural next model is a context-conditioned $\beta$ network that
+maps a short sliding window of field-wise innovation statistics
+(mean, variance, autocorrelation) to the ten $\beta$ parameters,
+optionally with known $(\sigma, d)$ context as an ablation-only
+auxiliary input; the agent-available primary input is the
+innovation window, since a biological agent does not directly
+observe the noise level or sensorimotor delay.
 
 \subsection{Task transfer reveals task-dependence (C4)}
 \label{sec:results-c4}
@@ -1051,11 +1060,11 @@ gives the agent information about \emph{sensor quality}, not about
 sensory help}. The second piece of information --- whether the
 controller's planned trajectory is being followed --- is in the task
 outcome, not in the innovation. C2 then shows that adding the
-outcome layer through SPSA recovers most of the gap on a single
-cell: the SPSA training-time outcome reaches the $K{=}0$ baseline
-within $1$\,cm in its last-$20$-iter mean, and a fresh deployment
-of the trained $\beta$ leaves $\sim\!6$\,cm of residual error on
-that cell --- compared with the $23$\,cm default-reliability gap. Together they show that, at least
+outcome layer through SPSA recovers about $17$ of the $23$\,cm
+default-reliability gap on a single training cell ($0.77$\,m
+$\to\,0.56$\,m deployed, against $K{=}0$ at $0.50$\,m); the
+smoothed training trajectory briefly reaches the $K{=}0$ level as a
+convergence signal. Together they show that, at least
 on this task, a two-layer agent-available adaptation rule is
 sufficient. Open question: whether reliability + outcome can also
 be combined within a single trial (e.g.\ an outcome-modulated
@@ -1075,10 +1084,13 @@ substantially across cells (Table~\ref{tab:default_kf}). A single
 global $\beta_{0,f}$ that pushes $K$ to nearly $0$ at the high-
 noise cell over-suppresses at the low-noise cell and vice versa.
 C3 therefore evidences that the \emph{adaptation parameterisation},
-not the outcome loop, is underpowered: a context-conditioned $\beta$
-(predicted from $(\sigma, d)$ or from running innovation statistics)
-is the natural next model class, corresponding biologically to
-context-dependent gating; we have not implemented it here. A
+not the outcome loop, is underpowered. The natural next model class
+is a context-conditioned $\beta$ network mapping a sliding window of
+field-wise innovation statistics to the ten $\beta$ parameters
+(known $(\sigma, d)$ context being available only as an
+ablation-only auxiliary input, since the biological agent does not
+observe these labels directly); corresponding biologically to
+context-dependent gating. We have not implemented it here. A
 related theoretical question is whether $K^{\star}_{\mathrm{cl}}$
 under reasonable controllers admits a low-dimensional shared
 structure across cells; if it does, a context-dependent extension of
@@ -1097,12 +1109,11 @@ on ReachRandom is multimodal across cells ($\{0, 0.25, 1\}$,
 Appendix~\ref{app:reach-random}), so the default field-wise gains
 happen to land near the per-cell optima in the delay-$18$ rows.
 Pushing $K_f$ globally down (as the ReachFixed-trained $\beta$
-does) is correct on the source task but wrong on the target. The biological reading is that an agent
-trained on a uniform-optimum task and asked to perform a multimodal-
-optimum variant should be expected to perform worse than an agent
-with a more conservative prior --- a falsifiable prediction about
-how the structure of the closed-loop optimum should appear in cross-
-task transfer experiments.
+does) is correct on the source task but wrong on the target. The reading is that gain adaptation trained in a uniform-optimum
+regime should transfer poorly to a task whose closed-loop optimum
+is multimodal unless the rule is context-conditioned --- a testable
+computational hypothesis that the present transfer slice
+illustrates within a single simulated task family.
 
 \smallskip
 
@@ -1164,10 +1175,11 @@ outcome --- without an offline oracle on the optimal gain. A two-
 layer adaptation rule combining a logistic
 $K_f(t)\!=\!\sigma(\beta_{0,f}\!+\!\beta_{1,f}\log r_f(t))$ over
 field-wise reliability with SPSA across-trial updates of $\beta$
-closes most of the default-reliability vs $K{=}0$ gap on a single
-training cell ($23$\,cm $\to$ within $1$\,cm in the smoothed
-training-time outcome; $\sim\!6$\,cm residual when deploying the
-final $\beta$ on independent episodes), with no oracle access (C2). The same rule has two structural
+recovers about $17$ of the $23$\,cm default-reliability vs $K{=}0$
+gap on a single training cell ($0.77$\,m $\to\,0.56$\,m deployed
+against $K{=}0$ at $0.50$\,m; the smoothed training trajectory
+briefly reaches the $K{=}0$ level as a convergence signal), with
+no oracle access (C2). The same rule has two structural
 limitations: when the closed-loop optimum is uniform across noise-
 delay cells, a single global $\beta$ trained on a multi-cell mixture
 closes only $3$--$5$\,cm of the gap (C3, cell-heterogeneity ceiling);
