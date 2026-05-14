@@ -565,6 +565,102 @@ delay wrapper の意味を変えない。Project 1 では `observe(s_t) -> s_(t-
 
 #term("agent-available signals", [agent 自身が観測・計算可能なシグナルのこと。`y_t`(観測)、`xhat_(t-d)`(自分の推定)、`u_t`(自分の出した運動指令)、reach 終了後の `min_t |tip - target|` などが含まれる。`x_t`(真の状態)や per-condition の K-sweep oracle ラベルは含まれない。])
 
+=== 二層の役割と時間スケール
+
+ここでいう「trial」は 1 回の reach episode(600 step × 0.02 s = 12 秒)を指す。二層適応則は、この trial の *中* と *外* で異なる学習を回す。
+
+#table(
+  columns: (1.3fr, 1.6fr, 1.6fr),
+  inset: 5pt,
+  [], [within-trial layer], [across-trial layer],
+  [時定数],
+  [$tilde 20$ step ($approx 0.4$ s)],
+  [$tilde 100$ trial(数十分〜数時間)],
+  [信号源],
+  [step ごとの innovation $e_t = y_t - hat(x)_(t-d)$],
+  [trial 終了後の outcome $"minTip"(beta)$],
+  [何が変わるか(state)],
+  [field-wise EMA variance $v_f(t)$、つまり gain $K_f(t)$ そのもの],
+  [meta-parameter $beta = {beta_(0,f), beta_(1,f)} in RR^10$],
+  [何が固定(input)],
+  [$beta$ は固定 const として与えられる],
+  [$beta$ を動かす(within-trial dynamics ごと書き換える)],
+  [生物学的読み(coarse)],
+  [小脳 microcircuit で常時走る per-channel error monitoring],
+  [シナプス可塑性 / consolidation レベルの slow learning],
+)
+
+==== Step-wise signal flow (within-trial)
+
+```text
+[step t]
+  ① 観測到着       y_t = x_{t-d} + noise    (delay d 前の状態のノイズ版)
+  ② innovation     e_t = y_t - xhat_{t-d}
+  ③ field-wise EMA v_f(t) = (1-α) v_f(t-1) + α · mean(e_t[field f]^2)
+  ④ reliability    r_f(t) = 1 / (ε + v_f(t))
+  ⑤ logistic gain  K_f(t) = σ( β_{0,f} + β_{1,f} · log r_f(t) )
+  ⑥ correction     xhat_{t-d} ← xhat_{t-d} + K_f(t) · (y_t - xhat_{t-d})
+  ⑦ buffer update + 次の予測へ
+```
+
+ここで *学習されているのは* `v_f(t)` という EMA state(= memory cell に近い動的状態)であり、重みパラメータ $beta$ は触らない。episode 開始時に $v_f(0)=1$ から始まり、その episode 中に shape される。次の episode でも `v_f` はリセットされる。
+
+==== Iteration-wise signal flow (across-trial)
+
+```text
+[SPSA iteration n]   (= 何回かの episode のセット)
+  ① Δ_n ~ Rademacher({-1,+1})^10
+  ② "+ 側" S 個 episode で outcome を平均
+       β_n + c_n·Δ_n  →  o_plus  = mean of S minTip(s)
+  ③ "- 側" 同様
+       β_n - c_n·Δ_n  →  o_minus
+  ④ 中央差分の SPSA 勾配:
+       ĝ_n = (o_plus - o_minus) / (2 c_n) · Δ_n^{-1}
+  ⑤ β を更新:
+       β_{n+1} = β_n - a_n · ĝ_n
+```
+
+ここで *学習されているのは* $beta$ そのもの。within-trial 動態 $v_f$ ではなく、その動態を支配する logistic のパラメータが書き換わる。SPSA は 10 次元の $beta$ 空間を *1 iteration あたり 2 評価* で探索できる(Rademacher 摂動による単一同時摂動)ので、有限差分($2 times 10 = 20$ 評価)より次元スケーラブル。
+
+==== 二層の関係
+
+```text
+                trial n            trial n+1            trial n+2
+               ┌────────┐         ┌────────┐         ┌────────┐
+β (固定) ─────►│within  │ ──────► │within  │ ──────► │within  │
+               │reliab. │         │reliab. │         │reliab. │
+               │ K_f(t) │         │ K_f(t) │         │ K_f(t) │
+               │ in     │         │ in     │         │ in     │
+               │ episode│         │ episode│         │ episode│
+               └────┬───┘         └────┬───┘         └────┬───┘
+                    │                  │                  │
+                    ▼                  ▼                  ▼
+                minTip_n           minTip_{n+1}        minTip_{n+2}
+                    │                  │                  │
+                    └──────────────────┴──────────────────┘
+                                       │
+                                       ▼
+                         ┌──────────────────────────┐
+                         │ across-trial SPSA        │
+                         │ β ← β - a · ĝ            │
+                         └──────────────────────────┘
+                                       │
+                                       ▼
+                                β (slow update)
+```
+
+within-trial は $beta$ を *入力として固定 const* に取り、innovation history を進化させて episode 中に $K_f(t)$ を動かす。across-trial は episode 終了後に $beta$ を *書き換える*、次 episode 以降の within-trial dynamics を変える。
+
+==== なぜ二層に分けるか
+
+C1(default reliability が task-misaligned)が直接の動機。
+
++ innovation を見れば *sensor 信頼度* は分かる。だが「forward model が task に十分良いから sensor は要らない」は分からない。これは *試行の結末*(= reach の outcome)を見ないと判別できない。
++ 一方で、毎 step outcome 信号を待つことはできない。reach が終わるまで $"minTip"$ は確定しない。
++ したがって *innovation で step ごとに即応*(within-trial)+ *outcome で trial 間で slow correction*(across-trial)という二層構成が自然な解になる。
+
+C2 の主結果 = across-trial layer が 1 cell で $17$ / $23$ cm の gap を埋める = 「outcome を加えて初めて task-aware adaptation になる」を直接示している。C3 の限界 = $beta$ 一つで multi-cell に対応できない = across-trial layer の *parameterisation 限界*(SPSA 限界ではない)。次の自然な拡張は $beta$ 自体を context-conditioned network 化すること(Project 1.5)。
+
 === Within-trial layer: innovation history から reliability へ
 
 各 step、観測 `y_t` と過去 estimate の差分(innovation)を計算する。
