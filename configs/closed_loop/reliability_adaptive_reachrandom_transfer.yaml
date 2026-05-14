@@ -1,0 +1,76 @@
+# ReachRandom transfer: apply the ReachFixed full-grid SPSA-learned β
+# to myoArmReachRandom-v0 (variable target). Tests whether the learned
+# reliability rule transfers across task variants. H=8 ReachRandom
+# forward model + joint-PD controller.
+
+seed: 0
+
+env_id: myoArmReachRandom-v0
+horizon: 600
+
+forward_model: runs/models/2026-05-12T14-03-25Z
+
+target_set: runs/targets/train.npz
+episodes_per_cell: 10
+
+obs_compose: noisy_then_delayed
+
+noise_conditions:
+  none:    { qpos: 0.0,   qvel: 0.0,   tip_pos: 0.0,    reach_err: 0.0 }
+  high:    { qpos: 0.02,  qvel: 0.02,  tip_pos: 0.01,   reach_err: 0.01 }
+  xhigh:   { qpos: 0.08,  qvel: 0.08,  tip_pos: 0.04,   reach_err: 0.04 }
+
+delay_grid: [0, 18]
+
+estimators:
+  - name: K=0.0
+    kind: fixed
+    gain: 0.0
+  - name: K=1.0
+    kind: fixed
+    gain: 1.0
+  - name: reliability_adaptive_v1_rr
+    kind: reliability_adaptive
+    config:
+      alpha: 0.05
+      epsilon: 1.0e-6
+      var_init: 1.0
+      beta0: { qpos: 0.0, qvel: 0.0, act: 0.0, tip_pos: 0.0, reach_err: 0.0 }
+      beta1: { qpos: 0.5, qvel: 0.5, act: 0.5, tip_pos: 0.5, reach_err: 0.5 }
+  - name: reliability_adaptive_v2_fullgrid_transfer
+    kind: reliability_adaptive
+    config:
+      alpha: 0.05
+      epsilon: 1.0e-6
+      var_init: 1.0
+      beta0:
+        qpos: -0.639
+        qvel: -0.214
+        act: 0.123
+        tip_pos: -0.316
+        reach_err: -0.163
+      beta1:
+        qpos: 0.199
+        qvel: 0.797
+        act: 0.537
+        tip_pos: 0.634
+        reach_err: 0.334
+
+controller:
+  name: joint_pd
+  Kp: 30.0
+  Kd: 3.0
+  action_scale: 5.0
+  ik_max_iter: 200
+  ik_tol: 0.01
+  ik_damping: 0.1
+
+sdn:
+  sigma: 0.0
+
+success_thresholds: [0.05, 0.10, 0.15]
+success_duration: 10
+skip_cold_start_steps_use_delay: true
+save_per_episode: true
+
+output_root: runs/closed_loop

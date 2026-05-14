@@ -1,0 +1,55 @@
+# SPSA proof-of-concept: train β on a single cell (none, d=18) under
+# the H=8 forward model + joint-PD controller. Goal: verify the outer
+# loop is wired correctly and that outcome trends down as β adapts.
+
+seed: 0
+
+env_id: myoArmReachFixed-v0
+horizon: 600
+max_steps: 600
+forward_model: runs/models/2026-05-11T11-47-34Z
+target_set: runs/targets/train.npz
+
+# Single-cell PoC: only (none, d=18)
+noise_conditions:
+  none: { qpos: 0.0, qvel: 0.0, tip_pos: 0.0, reach_err: 0.0 }
+
+delay_grid: [18]
+
+controller:
+  name: joint_pd
+  Kp: 30.0
+  Kd: 3.0
+  action_scale: 5.0
+  ik_max_iter: 200
+  ik_tol: 0.01
+  ik_damping: 0.1
+
+observer:
+  alpha: 0.05
+  epsilon: 1.0e-6
+  var_init: 1.0
+  init_beta0:
+    qpos: 0.0
+    qvel: 0.0
+    act: 0.0
+    tip_pos: 0.0
+    reach_err: 0.0
+  init_beta1:
+    qpos: 0.5
+    qvel: 0.5
+    act: 0.5
+    tip_pos: 0.5
+    reach_err: 0.5
+  target_pos_gain: 1.0
+
+spsa:
+  max_iter: 60
+  samples_per_side: 5     # 5 targets × 2 sides = 10 eps / iter
+  a: 0.5
+  c: 0.2
+  alpha: 0.602
+  gamma: 0.101
+  A: 6.0
+
+output_root: runs/reliability_adaptive_v2

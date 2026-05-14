@@ -1,0 +1,78 @@
+# Closed-loop eval on the focused 6-cell grid using the β learned by
+# aggressive SPSA on (none, d=18). Tests whether the β learned on a
+# single cell generalises across the (noise, delay) grid.
+
+seed: 0
+
+env_id: myoArmReachFixed-v0
+horizon: 600
+
+forward_model: runs/models/2026-05-11T11-47-34Z
+
+target_set: runs/targets/train.npz
+episodes_per_cell: 10
+
+obs_compose: noisy_then_delayed
+
+noise_conditions:
+  none:    { qpos: 0.0,   qvel: 0.0,   tip_pos: 0.0,    reach_err: 0.0 }
+  high:    { qpos: 0.02,  qvel: 0.02,  tip_pos: 0.01,   reach_err: 0.01 }
+  xhigh:   { qpos: 0.08,  qvel: 0.08,  tip_pos: 0.04,   reach_err: 0.04 }
+
+delay_grid: [0, 18]
+
+estimators:
+  - name: K=0.0
+    kind: fixed
+    gain: 0.0
+  - name: K=1.0
+    kind: fixed
+    gain: 1.0
+  - name: learned_phaseC_closed_loop_oracle
+    kind: learned
+    learned_gain_model: runs/learned_gain_models/2026-05-11T14-04-04Z
+  - name: reliability_adaptive_v1
+    kind: reliability_adaptive
+    config:
+      alpha: 0.05
+      epsilon: 1.0e-6
+      var_init: 1.0
+      beta0: { qpos: 0.0, qvel: 0.0, act: 0.0, tip_pos: 0.0, reach_err: 0.0 }
+      beta1: { qpos: 0.5, qvel: 0.5, act: 0.5, tip_pos: 0.5, reach_err: 0.5 }
+  - name: reliability_adaptive_v2_spsa_learned
+    kind: reliability_adaptive
+    config:
+      alpha: 0.05
+      epsilon: 1.0e-6
+      var_init: 1.0
+      beta0:
+        qpos: -1.5274
+        qvel: -0.1823
+        act: -0.2208
+        tip_pos: -0.3458
+        reach_err: -0.0376
+      beta1:
+        qpos: 0.8895
+        qvel: 0.4985
+        act: 0.3318
+        tip_pos: 0.2961
+        reach_err: -0.0167
+
+controller:
+  name: joint_pd
+  Kp: 30.0
+  Kd: 3.0
+  action_scale: 5.0
+  ik_max_iter: 200
+  ik_tol: 0.01
+  ik_damping: 0.1
+
+sdn:
+  sigma: 0.0
+
+success_thresholds: [0.05, 0.10, 0.15]
+success_duration: 10
+skip_cold_start_steps_use_delay: true
+save_per_episode: true
+
+output_root: runs/closed_loop

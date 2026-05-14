@@ -113,6 +113,32 @@ def _build_estimator(
             state_spec=state_spec,
             delay_steps=int(delay_steps),
         )
+    if kind == "reliability_adaptive":
+        from myoarm_fse.estimators import (
+            ReliabilityAdaptiveConfig,
+            ReliabilityAdaptiveObserver,
+        )
+        cfg_spec = estimator_spec.get("config", {})
+        # Parse optional per-field beta dicts.
+        adaptive_fields = ("qpos", "qvel", "act", "tip_pos", "reach_err")
+        beta0_raw = cfg_spec.get("beta0", {})
+        beta1_raw = cfg_spec.get("beta1", {})
+        beta0 = {f: float(beta0_raw.get(f, 0.0)) for f in adaptive_fields}
+        beta1 = {f: float(beta1_raw.get(f, 0.5)) for f in adaptive_fields}
+        ra_cfg = ReliabilityAdaptiveConfig(
+            alpha=float(cfg_spec.get("alpha", 0.05)),
+            epsilon=float(cfg_spec.get("epsilon", 1e-6)),
+            var_init=float(cfg_spec.get("var_init", 1.0)),
+            beta0=beta0,
+            beta1=beta1,
+            target_pos_gain=float(cfg_spec.get("target_pos_gain", 1.0)),
+        )
+        return ReliabilityAdaptiveObserver(
+            forward_model=forward_model,
+            state_spec=state_spec,
+            delay_steps=int(delay_steps),
+            config=ra_cfg,
+        )
     if kind == "learned":
         path = str(estimator_spec["learned_gain_model"])
         predictor, learned_cfg = learned_models[path]

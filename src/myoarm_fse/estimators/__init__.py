@@ -22,6 +22,10 @@ from myoarm_fse.estimators.learned import (
     save_learned_gain_model,
     train_gain_predictor,
 )
+from myoarm_fse.estimators.reliability_adaptive import (
+    ReliabilityAdaptiveConfig,
+    ReliabilityAdaptiveObserver,
+)
 
 __all__ = [
     # base
@@ -46,4 +50,7 @@ __all__ = [
     "StateAwareLearnedGainKalmanEstimator",
     "StateAwareTrainConfig",
     "train_state_aware_gain_predictor",
+    # reliability-adaptive observer
+    "ReliabilityAdaptiveConfig",
+    "ReliabilityAdaptiveObserver",
 ]

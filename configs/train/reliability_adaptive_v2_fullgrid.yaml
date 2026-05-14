@@ -1,0 +1,57 @@
+# Full-grid SPSA on the focused 6-cell grid (3 noise × 2 delay) under
+# H=8 forward model + joint-PD controller. Each iteration averages
+# samples uniformly across all 6 cells (random sampling), so the
+# learned β is a balanced single β across noise/delay regimes.
+
+seed: 0
+
+env_id: myoArmReachFixed-v0
+horizon: 600
+max_steps: 600
+forward_model: runs/models/2026-05-11T11-47-34Z
+target_set: runs/targets/train.npz
+
+noise_conditions:
+  none:  { qpos: 0.0,  qvel: 0.0,  tip_pos: 0.0,  reach_err: 0.0 }
+  high:  { qpos: 0.02, qvel: 0.02, tip_pos: 0.01, reach_err: 0.01 }
+  xhigh: { qpos: 0.08, qvel: 0.08, tip_pos: 0.04, reach_err: 0.04 }
+
+delay_grid: [0, 18]
+
+controller:
+  name: joint_pd
+  Kp: 30.0
+  Kd: 3.0
+  action_scale: 5.0
+  ik_max_iter: 200
+  ik_tol: 0.01
+  ik_damping: 0.1
+
+observer:
+  alpha: 0.05
+  epsilon: 1.0e-6
+  var_init: 1.0
+  init_beta0:
+    qpos: 0.0
+    qvel: 0.0
+    act: 0.0
+    tip_pos: 0.0
+    reach_err: 0.0
+  init_beta1:
+    qpos: 0.5
+    qvel: 0.5
+    act: 0.5
+    tip_pos: 0.5
+    reach_err: 0.5
+  target_pos_gain: 1.0
+
+spsa:
+  max_iter: 100
+  samples_per_side: 12
+  a: 2.0
+  c: 0.3
+  alpha: 0.602
+  gamma: 0.101
+  A: 5.0
+
+output_root: runs/reliability_adaptive_v2
