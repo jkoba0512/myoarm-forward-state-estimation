@@ -449,6 +449,40 @@ dim = 20 + 20 + 34 + 3 + 3 + 3 = 83
   [`reach_err`], [3], [`target_pos - tip_pos`],
 )
 
+== 評価グリッドと cell
+
+Project 1 で頻出する *cell* という用語の意味を先に定義しておく。
+
+#callout("定義: cell", [
+*cell* = 評価グリッドの 1 区画。具体的には *(noise level, delay)* の組合せ 1 つを指す。
+], color: green, fill: pale-green)
+
+observer の性能は、観測ノイズの強さと sensor 遅延の組合せで挙動が大きく変わる。Project 1 はこれを系統的に測るため、 *focused grid* と呼ばれる以下の 6 区画でほぼすべての closed-loop 評価を行う。
+
+#table(
+  columns: (1fr, 1fr, 1.5fr, 2.7fr),
+  inset: 5pt,
+  [noise level], [delay], [cell ラベル], [挙動の傾向],
+  [`none`(0)],   [`0` step],   [`(none, d=0)`],   [理想に近い: sensor 即時 + ノイズなし],
+  [`none`],      [`18` step],  [`(none, d=18)`],  [delay 主導: forward model rollout が効く],
+  [`high`(中)],  [`0`],        [`(high, d=0)`],   [noise 主導: 観測が荒れる],
+  [`high`],      [`18`],       [`(high, d=18)`],  [noise + delay の複合],
+  [`xhigh`(大)], [`0`],        [`(xhigh, d=0)`],  [強 noise: sensor 強く不信],
+  [`xhigh`],     [`18`],       [`(xhigh, d=18)`], [強 noise + 大 delay の最難条件],
+)
+
+これら 6 つを *3 noise × 2 delay = 6 cell* と数える。論文中の "delay-18 cells" は `(none, d=18) / (high, d=18) / (xhigh, d=18)` の 3 cell、 "delay-0 cells" は対応する `d=0` の 3 cell を指す。
+
+#term("focused grid", [
+Project 1 main results が走る *3 noise × 2 delay = 6 cell* の評価盤。各 cell につき 10 episode 走らせ、 10 episode の平均 min-tip を per-cell の代表値とする。論文の全 figure / table はこの 6 cell の上で読む。
+])
+
+#term("full stress grid", [
+Appendix C(oracle-supervised diagnostic)が使うより広い評価盤 = *6 noise × 4 delay × 3 controller = 72 cell*。 oracle $K^*_("ol")$ を per-cell に sweep するために必要。 main results では使わない。
+])
+
+なぜ cell ごとに分けるか: 同じ observer でも noise / delay の組合せが違えば innovation の振る舞いが変わり、 closed-loop oracle $K^*_("cl")$ も変わりうる。 cell ごとに評価することで、 *どの条件で improving し、どの条件で破綻するか* を切り分けられる。 C1 / C2 / C3 / C4 の主張はすべて「どの cell でどう振る舞うか」を per-cell で示している。
+
 = Forward model
 
 == なぜ forward model が必要か
@@ -1204,23 +1238,80 @@ stochastic approximation は Robbins–Monro (1951) に始まる古典的最適�
 
 SPSA は Kiefer-Wolfowitz の有限差分と Evolution Strategies の中間。"差分" は使うが次元数に依存せず常に 2 評価で済む。
 
+===== Rademacher 摂動とは
+
+SPSA の中心道具である *Rademacher 摂動* を先に説明しておく。
+
+#callout("定義: Rademacher distribution", [
+スカラー確率変数 $X$ について、$X = +1$ と $X = -1$ をそれぞれ確率 $1/2$ で取るとき、 $X$ は *Rademacher 分布* に従うという(ドイツの数学者 Hans Rademacher にちなむ)。\
+\
+言い換えると: フェアなコイン投げで「表 = +1、裏 = -1」とした値そのもの。
+], color: green, fill: pale-green)
+
+統計的性質:
+
+#table(
+  columns: (1.5fr, 2.5fr),
+  inset: 4pt,
+  [量], [値],
+  [期待値 $EE[X]$],          [$0$ (対称分布)],
+  [分散 $"Var"(X)$],         [$1$],
+  [絶対値 $|X|$],            [常に $1$(値域 ${-1, +1}$)],
+  [逆数 $1/X$],              [常に $plus.minus 1$ で *有限*($X = 0$ にならない)],
+)
+
+特に重要なのは *逆数が有限であること*。後述の SPSA 勾配推定で $1/Delta_i$ を使うので、 $Delta_i$ が $0$ になり得る分布(Gaussian など)は使えない。
+
+*Rademacher 摂動ベクトル* は、これを $p$ 次元に拡張したもの:
+
+$ Delta = (Delta_1, Delta_2, dots, Delta_p) in {-1, +1}^p $
+
+ただし *各成分 $Delta_i$ は独立* に $plus.minus 1$ を等確率で取る。Project 1 では $p = 10$($beta$ の次元)。
+
+具体例 ($p = 10$):
+
+```text
+Delta example 1:  (+1, -1, +1, +1, -1, -1, +1, -1, +1, +1)
+Delta example 2:  (-1, -1, +1, -1, +1, +1, -1, +1, -1, -1)
+Delta example 3:  (+1, +1, -1, +1, -1, +1, +1, -1, -1, +1)
+```
+
+このベクトルを使って $beta$ を「全成分同時に $plus.minus c$ で揺らす」のが SPSA の核心。
+
+直交性 (orthogonality) という重要な性質を満たす:
+
+$ EE[Delta_i] = 0 quad ("各成分の平均は 0") $
+$ EE[Delta_i Delta_j] = cases(1 & "if " i = j, 0 & "if " i != j) quad ("独立性 + " Delta_i^2 = 1) $
+$ EE[Delta_j slash Delta_i] = EE[Delta_j] dot.c EE[1 slash Delta_i] = 0 quad (i != j) $
+
+最後の式が SPSA の不偏性を保証する。 *$i$ 番目の成分以外の摂動方向は期待値で消える* ので、 1 つの摂動 $Delta$ から全成分の勾配を *偏り無く* 推定できる。
+
 ===== SPSA の中心アイデア: simultaneous perturbation
 
 10 次元の $beta = (beta_1, beta_2, dots, beta_(10))$ の勾配を有限差分で取るなら、各成分について
 
 $ partial J / partial beta_i approx (J(beta + h e_i) - J(beta - h e_i)) / (2 h) $
 
-を計算するので $20$ 評価必要。これを *全 10 成分同時に摂動* して 2 評価で全部やる、というのが SPSA。
+を計算するので $20$ 評価必要(成分ごとに $plus.minus$ 方向で 2 評価)。これを *全 10 成分同時に摂動* して 2 評価で全部やる、というのが SPSA。
 
-具体的に、Rademacher vector $Delta = (Delta_1, dots, Delta_(10)) in {-1, +1}^(10)$(各 $Delta_i$ が独立に $plus.minus 1$ を等確率で取る)で
+具体的に、Rademacher 摂動ベクトル $Delta in {-1, +1}^(10)$ を 1 つサンプルして
 
 $ J(beta + c Delta), quad J(beta - c Delta) $
 
-を評価し、 *$i$ 番目の勾配推定* を
+を評価する($c$ は摂動幅、Spall schedule で減衰する小さな正数)。そして *$i$ 番目の勾配推定* を次式で計算する:
 
 $ hat(g)_i = (J(beta + c Delta) - J(beta - c Delta)) / (2 c Delta_i) $
 
-と計算する。これは見た目奇妙だが、 *平均すると正しい勾配* になる(下記)。
+要素的に書くと:
+
+$ hat(g) = ((J(beta + c Delta) - J(beta - c Delta)) / (2 c)) dot.c vec(1 slash Delta_1, 1 slash Delta_2, dots.v, 1 slash Delta_(10)) $
+
+つまり 1 つのスカラー差分 $(J^+ - J^-)/(2c)$ を、 *摂動方向の逆数ベクトル* $Delta^(-1) = (1/Delta_1, dots, 1/Delta_(10))$ で broadcast している。Rademacher なので $1/Delta_i = Delta_i$、 実装上は要素積になる。
+
+#callout("この推定の見た目", [
+$hat(g)_i$ には *$i$ 番目以外の成分の勾配寄与も混ざっている*(下記の展開で出る)。\
+にもかかわらず期待値を取ると正しい勾配になる、というのが Spall (1992) の発見。Rademacher の直交性 $EE[Delta_j / Delta_i] = 0$ ($j != i$) によりクロス項が *期待値で消える*。
+], color: green, fill: pale-green)
 
 ===== なぜこの推定が動くのか
 
