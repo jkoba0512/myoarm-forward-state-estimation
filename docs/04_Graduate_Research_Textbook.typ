@@ -1043,6 +1043,210 @@ Project 1 では SPSA を 2 つの設定で走らせた:
   [single global $beta$ で grid を覆えるかの structural test (C3)],
 )
 
+==== SPSA の詳細解説
+
+ここでは Project 1 で多用されている SPSA (Simultaneous Perturbation Stochastic Approximation) の原理を、stochastic approximation の系譜から SPSA 独自の摂動戦略、収束理論、実装上の注意点まで詳しく説明する。
+
+===== 背景: なぜ勾配降下を直接使えないか
+
+目的関数 $J(beta) = EE["minTip"(beta)]$ を最小化したい。標準的な勾配降下は
+
+$ beta_(n+1) = beta_n - a_n nabla_beta J(beta_n) $
+
+を回す。しかし Project 1 の設定では $nabla_beta J$ を解析的に取れない:
+
++ outcome $"minTip"(beta)$ は env step → EMA → sigmoid → joint-PD control → 非可微の $min_t |dot.c|$ を経由する長い計算グラフを通る。
++ env が物理シミュレーション(MuJoCo)で、解析的微分が事実上不可能。
++ target は episode ごとに変わり、$J$ は確率的に noisy(評価のたびに値が違う)。
+
+つまり目的関数を *black box* として扱う必要がある。
+
+===== Stochastic approximation の系譜
+
+stochastic approximation は Robbins–Monro (1951) に始まる古典的最適化手法の族で、*noisy な関数評価から最適点を逐次的に追っていく* 枠組み。代表的アルゴリズム:
+
+#table(
+  columns: (1.3fr, 1.5fr, 2.5fr),
+  inset: 4pt,
+  [手法], [何を観測], [勾配推定の方法],
+  [Robbins-Monro (1951)], [scalar $J(beta) + "noise"$], [理論的枠組み(具体的アルゴリズムは指定なし)],
+  [Kiefer-Wolfowitz (1952)], [$J(beta + h e_i), J(beta - h e_i)$ for each $i$], [有限差分: 1 次元あたり 2 評価、$p$ 次元なら $2p$ 評価/iter],
+  [SPSA (Spall 1992)], [$J(beta + c Delta), J(beta - c Delta)$ where $Delta in {plus.minus 1}^p$], [全次元を 1 つの Rademacher 摂動で同時推定: 常に $2$ 評価/iter],
+  [Evolution Strategies], [$J(beta + sigma Z_k)$ for $k=1..K$], [複数 Gaussian 摂動の reward-weighted 平均],
+)
+
+SPSA は Kiefer-Wolfowitz の有限差分と Evolution Strategies の中間。"差分" は使うが次元数に依存せず常に 2 評価で済む。
+
+===== SPSA の中心アイデア: simultaneous perturbation
+
+10 次元の $beta = (beta_1, beta_2, dots, beta_(10))$ の勾配を有限差分で取るなら、各成分について
+
+$ partial J / partial beta_i approx (J(beta + h e_i) - J(beta - h e_i)) / (2 h) $
+
+を計算するので $20$ 評価必要。これを *全 10 成分同時に摂動* して 2 評価で全部やる、というのが SPSA。
+
+具体的に、Rademacher vector $Delta = (Delta_1, dots, Delta_(10)) in {-1, +1}^(10)$(各 $Delta_i$ が独立に $plus.minus 1$ を等確率で取る)で
+
+$ J(beta + c Delta), quad J(beta - c Delta) $
+
+を評価し、 *$i$ 番目の勾配推定* を
+
+$ hat(g)_i = (J(beta + c Delta) - J(beta - c Delta)) / (2 c Delta_i) $
+
+と計算する。これは見た目奇妙だが、 *平均すると正しい勾配* になる(下記)。
+
+===== なぜこの推定が動くのか
+
+$J$ を Taylor 展開:
+
+$ J(beta plus.minus c Delta) = J(beta) plus.minus c sum_i (partial J)/(partial beta_i) Delta_i + (c^2 / 2) sum_(i,j) (partial^2 J)/(partial beta_i partial beta_j) Delta_i Delta_j plus.minus O(c^3) $
+
+差分を取ると一次項だけ残る:
+
+$ J(beta + c Delta) - J(beta - c Delta) = 2 c sum_i (partial J)/(partial beta_i) Delta_i + O(c^3) $
+
+これを $2 c Delta_i$ で割って $i$ 成分目の推定とする:
+
+$ hat(g)_i = sum_j (partial J)/(partial beta_j) Delta_j / Delta_i + O(c^2) = (partial J)/(partial beta_i) + sum_(j != i) (partial J)/(partial beta_j) Delta_j / Delta_i + O(c^2) $
+
+第 2 項(クロス項)が重要で、Rademacher の性質より:
+
+$ EE[Delta_j / Delta_i] = EE[Delta_j] dot.c EE[1 / Delta_i] = 0 quad (j != i) $
+
+つまり *他の成分の勾配寄与は期待値 0* になるので、
+
+$ EE[hat(g)_i] = (partial J)/(partial beta_i) + O(c^2) $
+
+#callout("SPSA の核心", [
+Rademacher 摂動 $Delta in {-1, +1}^p$ は *直交性* $EE[Delta_j / Delta_i] = 0$ ($j != i$) を持つ。\
+これにより、1 つの摂動方向 $Delta$ で全 $p$ 成分の勾配を同時に *不偏推定* できる。
+], color: green, fill: pale-green)
+
+===== なぜ Rademacher で Gaussian ではないか
+
+$Delta_i tilde N(0, 1)$ (Gaussian) でも展開はできる。が、SPSA は Rademacher を選ぶ:
+
+#table(
+  columns: (1fr, 1.4fr, 1.4fr),
+  inset: 4pt,
+  [], [Rademacher $plus.minus 1$], [Gaussian $N(0, 1)$],
+  [$1 / Delta_i$ の分散], [常に $1$(有限)], [$infinity$(0 近傍で発散)],
+  [推定の variance], [bounded], [unbounded → 不安定],
+  [外れ値のリスク], [なし(全要素 $|Delta_i| = 1$)], [大きな摂動で実装が壊れる可能性],
+  [計算量], [$Delta_i^(-1) = Delta_i$ で済む], [割り算が必要],
+)
+
+Spall (1992) は Rademacher を含む *bounded inverse moment* を持つ分布を理論的に正当化した。実用上はほぼ常に Rademacher。
+
+===== Spall schedule の意味
+
+学習率 $a_n$ と摂動幅 $c_n$ は iteration $n$ について減衰する:
+
+$ a_n = a / (n + 1 + A)^(alpha_s) quad c_n = c / (n + 1)^(gamma_s) $
+
+#table(
+  columns: (1fr, 1fr, 3fr),
+  inset: 4pt,
+  [parameter], [default], [役割],
+  [$a$], [$2.0$], [初期学習率の規模],
+  [$c$], [$0.3$], [摂動幅の規模],
+  [$A$], [$5$], [初期 iteration の "stability buffer"(初期の大きな step を抑える)],
+  [$alpha_s$], [$0.602$], [学習率減衰指数 ($a_n -> 0$ as $n -> infinity$)],
+  [$gamma_s$], [$0.101$], [摂動減衰指数 ($c_n -> 0$ as $n -> infinity$)],
+)
+
+Spall (1992) の収束定理が要求する条件は:
+
+$ sum_n a_n = infinity, quad sum_n a_n^2 / c_n^2 < infinity, quad sum_n a_n c_n^2 < infinity $
+
+$alpha_s = 0.602, gamma_s = 0.101$ という値はこれらの条件をギリギリ満たしつつ実用的に速い収束を与える(Spall 推奨)。
+
+数値例(初期と後期):
+
+#table(
+  columns: (0.5fr, 0.8fr, 0.8fr, 2.5fr),
+  inset: 4pt,
+  align: right,
+  [$n$], [$a_n$], [$c_n$], [挙動],
+  [$0$], [$0.69$], [$0.30$], [大きな step、広い摂動で global 探索],
+  [$10$], [$0.40$], [$0.24$], [調整段階],
+  [$50$], [$0.20$], [$0.18$], [収束途上],
+  [$99$], [$0.13$], [$0.16$], [小さな step、狭い摂動で局所微調整],
+)
+
+===== Paired perturbation と分散低減
+
+Project 1 では `samples_per_side` $S in {10, 12}$ episode の平均を取る:
+
+$ o_n^+ = 1 / S sum_(s=1)^S "minTip"(beta_n + c_n Delta_n; "seed"_(n, s, +)) $
+$ o_n^- = 1 / S sum_(s=1)^S "minTip"(beta_n - c_n Delta_n; "seed"_(n, s, -)) $
+
+ここで *paired* というのは、 $s$ ごとに同じ target index と同じ env seed を使って $beta + c Delta$ と $beta - c Delta$ の両方を評価することを意味する(common random numbers)。これで $o_n^+ - o_n^-$ の分散が大きく減る:
+
+$ "Var"(o^+ - o^-) = "Var"(o^+) + "Var"(o^-) - 2 "Cov"(o^+, o^-) $
+
+paired にすれば $o^+$ と $o^-$ は同じ noise pattern を共有するので $"Cov"(o^+, o^-) > 0$ となり、差の分散が減る。Project 1 では target index と initial seed を $+$ と $-$ で一致させて paired evaluation を実現している。
+
+===== Project 1 での 1 iteration コスト
+
+1 SPSA iteration あたりの env episode 数:
+
+$ 2 dot.c S = 2 dot.c 10 = 20 "episode" quad ("single-cell, " S = 10) $
+$ 2 dot.c S = 2 dot.c 12 = 24 "episode" quad ("full-grid, " S = 12) $
+
+100 iteration で:
+
+#table(
+  columns: (1.2fr, 1fr, 1.2fr, 1.5fr),
+  inset: 4pt,
+  [variant], [iter 数], [episode 数], [walltime (CPU, M1 Pro)],
+  [single-cell ($S = 10$)], [$100$], [$2000$], [$tilde 30$ 分],
+  [full-grid ($S = 12$)], [$100$], [$2400$], [$tilde 2$ 時間(6 cell uniform)],
+)
+
+有限差分なら同等精度に $10$ 次元 $times 2 dot.c S = 200$ 評価/iter で 1 桁多くかかる。SPSA はこの 1 桁分のコスト圧縮で *次元数によらず常に 2 評価/iter* を達成している。
+
+===== 収束の直感
+
+1 iteration あたりの勾配推定はかなり noisy(他成分のクロス項が単独 sample では消えない)。が、SPSA は:
+
++ 各 iteration で *向きは正しい方向に確率的に動く*(不偏性)
++ Spall schedule で *学習率を段階的に絞る*
++ *学習率の二乗和は有限* なので、長期的には収束する
+
+結果として 100 iteration 程度で 10 次元の $beta$ が安定する。Project 1 の C2(F_spsa_single)で観察される下降軌道は:
+
+- 初期 ($n < 20$): 大きな揺れ、向きを探索
+- 中期 ($20 lt.eq n lt.eq 60$): outcome が下がる方向に bias がついて改善
+- 後期 ($n > 60$): 微調整、ほぼ収束
+
+===== SPSA の限界と Project 1 での意味
+
+SPSA は次元スケーラブルだが万能ではない:
+
+#table(
+  columns: (1.5fr, 2.5fr),
+  inset: 4pt,
+  [限界], [Project 1 での影響],
+  [局所最小],
+  [$J(beta)$ が非凸なら局所最小に捕まる可能性。Project 1 では $beta$ 空間が比較的なめらかなので問題化していないが、context-conditioned $beta$ network (Project 1.5) に拡張すると深刻化する可能性],
+  [hyperparameter 選択],
+  [$a, c, A$ の選択は task 依存。Project 1 は Spall 推奨値を採用しているが、収束速度は task ごとに改善余地],
+  [評価コスト],
+  [1 iteration $= 2S$ episodes は env が安価なら問題ないが、real robot では実用的でない場合がある],
+  [低次元向き],
+  [$p gt.eq 100$ 次元では SPSA より policy gradient / ES の方が分散が低い場合がある。Project 1 は $p = 10$ なので SPSA が最適],
+)
+
+#callout("Project 1 が SPSA を選んだ理由", [
++ 10 次元 → SPSA の dimension scalability の恩恵が最大
++ outcome が non-differentiable(min over t)→ gradient 計算不可
++ 評価は env simulation で十分高速 → 1 iter $tilde 20$ episode 許容
++ Spall schedule の確率収束保証が信頼できる
+], color: purple, fill: pale-purple)
+
+これらが揃っているため、Project 1 では SPSA が *agent-available outcome-driven adaptation* の自然な実装となる。
+
 === oracle-supervised predictor: upper bound diagnostic (Appendix C 教材)
 
 提案手法と対比される旧 main contribution(現 Appendix C)は、condition feature `(sigma, d, c)` から scalar `K` を出す MLP を、per-condition の K-sweep oracle ラベルで supervised に学習する。
