@@ -682,11 +682,93 @@ $ e_t \;=\; y_t - hat(x)_(t-d) $
 
 `target_pos`(3 次元)は信頼度学習の対象外。target は既知量で prediction error が意味を持たない。
 
+==== EMA(Exponential Moving Average / 指数移動平均)とは
+
+時系列 $x_1, x_2, dots, x_t$ の「現在の平均」を、過去ほど指数的に重みを下げて推定する手法。再帰的に次で定義する。
+
+$ v(t) \;=\; (1 - alpha) \cdot v(t-1) \;+\; alpha \cdot x_t $
+
+- $alpha in (0, 1)$: smoothing factor / 学習率
+- $v(0)$: 初期値(Project 1 では `v_f(0) = 1`)
+
+この再帰を展開すると、
+
+$ v(t) \;=\; alpha x_t + alpha(1-alpha) x_(t-1) + alpha(1-alpha)^2 x_(t-2) + dots $
+
+過去のデータには $(1-alpha)^k$ で指数減衰する重みがかかる。重みの大半が含まれる *effective window* は近似的に $1/alpha$ step。
+
+#table(
+  columns: (0.7fr, 1.2fr, 2.4fr),
+  inset: 5pt,
+  [$alpha$], [effective window], [性格],
+  [`0.5`],          [$tilde 2$ step],     [ほぼ直近の値そのもの],
+  [`0.1`],          [$tilde 10$ step],    [短期平均],
+  [`0.05` (Project 1)], [$tilde 20$ step], [paper の中時間スケール($approx 0.4$ s)],
+  [`0.01`],         [$tilde 100$ step],   [長期 trend],
+  [`0.001`],        [$tilde 1000$ step],  [ほぼ episode 全体],
+)
+
+Project 1 の $alpha=0.05$ は、step = 0.02 s で $approx 0.4$ 秒の窓。reach episode 12 秒の 3% 程度。瞬間 noise spike には過剰反応せず、reach 中盤での sensor 信頼度変化には追従できる選び方。
+
+==== Simple Moving Average との対比
+
+#table(
+  columns: (1fr, 1.7fr, 1.7fr),
+  inset: 5pt,
+  [], [SMA(window $N$)], [EMA(rate $alpha$)],
+  [定義], [$v(t) = (x_(t-N+1) + dots + x_t) / N$], [$v(t) = (1-alpha) v(t-1) + alpha x_t$],
+  [memory],   [window $N$ 個の過去値を保持],   [スカラ $v(t-1)$ 1 個だけ],
+  [計算量], [$O(N)$ per step],  [$O(1)$ per step],
+  [窓の縁], [hard cutoff($N+1$ step 前は重み 0)], [soft cutoff(指数減衰)],
+  [直近重視], [全要素均等],    [直近に重み大],
+)
+
+EMA の利点は *memory が 1 スカラで済む*こと。Project 1 では 5 つの sensory field × per-step 更新なので、SMA だと window 長さ分の buffer × 5 field 必要。EMA なら $v_f(t)$ を 5 個のスカラで完結できる。
+
+==== Project 1 での具体的使用
+
 各 field の 2 乗 innovation 平均を EMA で追跡する。
 
 $ v_f(t) \;=\; (1 - alpha) \, v_f(t-1) \;+\; alpha \cdot "mean"_(i in cal(I)_f) (e_(t,i)^2) $
 
 `alpha=0.05` だと時定数 ~20 step、1 episode の 3% 程度の窓。`v_f` が小さい = innovation が一貫して小さい = sensor 信頼できる。逆に大きい = sensor 信頼できない。
+
+#callout("なぜ二乗を取るか", [
+innovation $e_t$ そのものの平均は、forward model が unbiased なら(平均的に) $0$ に近い。「sensor が信頼できるか」を測りたいので、*分散 / 二乗誤差* を見たい。二乗平均は分散の推定量(mean が 0 と仮定すれば $E[e^2] = "Var"(e)$)。これは古典的 adaptive Kalman filter(Mehra 1970)が innovation sequence から noise covariance を推定するのと同じ発想。
+], color: green, fill: pale-green)
+
+==== 動作例(`(none, d=18)` cell, qvel field)
+
+```text
+t=0:    v_qvel = 1.0                    (初期値)
+t=1:    e_t^2 = 0.02                    (sensor 信頼できる)
+        v_qvel = 0.95·1.0 + 0.05·0.02 = 0.951
+t=2:    e_t^2 = 0.05
+        v_qvel = 0.95·0.951 + 0.05·0.05 = 0.906
+...
+t=200:  v_qvel ≈ 0.4                    (running variance に近づく)
+t=400:  v_qvel ≈ 0.38                   (定常状態)
+```
+
+`v_qvel` が下がる → reliability $r_f = 1 / (epsilon + v_f)$ が上がる → logistic $K_f$ が大きくなる → sensor を信じる。逆に innovation が暴れる cell では $v_f$ が高止まりし、$K_f$ は下がる。
+
+Project 1 の `tab:default_kf` で `qvel` だけが $K = 0.31 - 0.49$ と他 field より低い水準に張り付くのは、qvel の innovation 二乗が比較的高め(joint velocity は MyoSuite では振動成分が乗りやすい)で reliability が抑えられているため。
+
+==== 生物学的解釈
+
+EMA は神経生物学的にも自然な実装。脳の neural integrator(leaky integrator)は連続時間で
+
+$ tau dot(v)(t) \;=\; - v(t) + "input"(t) $
+
+を解く回路。これを $Delta t$ で離散化すると
+
+$ v(t + Delta t) \;=\; (1 - Delta t / tau) \, v(t) + (Delta t / tau) \, "input"(t) $
+
+= EMA 形式と等価。$alpha = Delta t / tau$、つまり EMA の $alpha$ は神経 leaky integrator の *time constant $tau$ の逆数* に対応する。
+
+#callout("biological reading", [
+Project 1 の within-trial layer は、*innovation の二乗を入力とする生物学的 leaky integrator* と読める。小脳 / 大脳基底核の short-time-scale neural integrator が、step ごとの sensory prediction error の大きさを統合し続けている、というモデルに対応する。
+], color: purple, fill: pale-purple)
 
 reliability に変換:
 
