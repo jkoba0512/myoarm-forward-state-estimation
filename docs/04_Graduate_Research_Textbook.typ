@@ -887,6 +887,119 @@ $ K_f(t) \;=\; sigma( beta_(0,f) + beta_(1,f) \, log r_f(t) ) $
 この per-field 動的調節を *innovation history だけ* から行うのが within-trial layer。
 ], color: green, fill: pale-green)
 
+==== なぜこの logistic 形で K_f(t) が決まるのか
+
+$K_f(t) = sigma(beta_(0,f) + beta_(1,f) log r_f(t))$ は 3 つの要請を同時に満たす最小の関数形である。それぞれ独立に動機がある。
+
+*要請 1: $K_f in [0, 1]$ を保証したい*
+
+innovation correction は $K dot.c e_t$ を $hat(x)$ に足す形なので、$K$ が範囲外に出ると blending が壊れる。任意の入力に対して必ず $(0, 1)$ に収まる滑らかな関数 → *ロジスティック sigmoid* $sigma(z) = 1 / (1 + e^(-z))$。
+
+*要請 2: 入力 $r_f$ は $(0, infinity)$ なので変換が必要*
+
+$r_f = 1 / (epsilon + v_f)$ は variance の逆数なので正のスカラー。$sigma$ の入力は $RR$ なのでマッピングが必要。*$log$ を取る*: $log r_f : (0, infinity) -> RR$ で $sigma$ にきれいに渡せる。
+
+- $r_f = 1$ → $log r_f = 0$ → $sigma(0) = 0.5$(中性点)
+- $r_f -> 0$(sensor 不確か)→ $log r_f -> -infinity$ → $K -> 0$
+- $r_f -> infinity$(sensor 高精度)→ $log r_f -> +infinity$ → $K -> 1$
+
+これで *「信頼できる時ほど sensor を信じ、不確かな時ほど予測を信じる」* という望ましい単調性が自動的に保証される。
+
+*要請 3: 2 自由度で柔軟性*
+
+$log r_f$ をそのまま $sigma$ に入れる($beta_0 = 0$, $beta_1 = 1$)だけでも動くが、それは厳密に *Bayesian variance-weighted blending と一致する固定形* になる(後述)。Project 1 は SPSA で task-specific な最適点を探すため、 $beta_0$(baseline)と $beta_1$(感応度)の 2 自由度を入れて Bayesian 解を一般化する。
+
+==== β_0 と β_1 の各役割
+
+$beta_(0,f)$ は *baseline gain*:
+
+$ K_f bar.v_(r_f = 1) = sigma(beta_(0,f)) $
+
+#table(
+  columns: (1fr, 1.4fr, 3fr),
+  inset: 4pt,
+  [$beta_(0,f)$], [$sigma(beta_(0,f))$ = baseline $K_f$], [解釈],
+  [$-3$],   [0.05], [sensor 強く不信(forward model 寄り)],
+  [$-1.5$], [0.18], [sensor 不信(C2 で qpos が学んだ値)],
+  [$0$],    [0.50], [neutral(default)],
+  [$+1.5$], [0.82], [sensor 信頼],
+  [$+3$],   [0.95], [sensor 強く信頼],
+)
+
+$beta_(1,f)$ は *reliability への感応度*:
+
+#table(
+  columns: (0.8fr, 2.5fr),
+  inset: 4pt,
+  [$beta_(1,f)$], [動作],
+  [$0$], [$K$ は $r_f$ に依存しない(常に $sigma(beta_0)$ で固定)],
+  [$+0.5$], [緩やかな反応(default 設定)],
+  [$+0.9$], [強い反応(C2 で qpos が学んだ値)],
+  [$> 1$], [非常に強い反応(0/1 に張り付きやすい)],
+  [負], [reliability 高 → $K$ 低(逆方向)。生物学的に不自然なので SPSA は正に push する],
+)
+
+具体例: $beta_1 = 0.9$ で $r_f$ が 10 倍になると $log r_f$ は約 $+2.3$ 増、$beta_1 log r_f$ は $+2.07$ 増 → $sigma$ の入力が大きく動き $K$ が大きく動く。
+
+==== 数値例: qpos field 軌道(β_0 = -1.5, β_1 = 0.9; C2 学習値)
+
+#table(
+  columns: (0.7fr, 0.7fr, 1fr, 1.5fr, 1fr),
+  inset: 4pt,
+  align: right,
+  [$r_f$], [$v_f approx 1/r_f$], [$log r_f$], [$beta_0 + beta_1 log r_f$], [$K_f = sigma(dot.c)$],
+  [$0.1$], [$10.0$], [$-2.30$], [$-3.57$], [$0.027$],
+  [$0.5$], [$2.0$], [$-0.69$], [$-2.12$], [$0.107$],
+  [$1.0$], [$1.0$], [$0.00$], [$-1.50$], [$0.182$],
+  [$2.0$], [$0.5$], [$+0.69$], [$-0.88$], [$0.293$],
+  [$10$], [$0.1$], [$+2.30$], [$+0.57$], [$0.639$],
+  [$100$], [$0.01$], [$+4.61$], [$+2.65$], [$0.934$],
+)
+
+innovation 分散が下がる(reliability 上がる)につれて $K$ が滑らかに $0 -> 1$ へ。閾値ではなく *soft switch* になっている。
+
+==== Bayesian inference との対応
+
+2 つの Gaussian 情報源(精度 $tau_("obs")$ と $tau_("pred")$)を最適統合するときの観測重みは Bayesian 公式で:
+
+$ w_("obs")^("Bayes") = tau_("obs") / (tau_("obs") + tau_("pred")) $
+
+forward 予測の精度を baseline $tau_("pred") = 1$ と置き、観測精度を $tau_("obs") = r_f$ と読むと:
+
+$ w_("obs")^("Bayes") = r_f / (r_f + 1) = 1 / (1 + 1/r_f) = sigma(log r_f) $
+
+したがって *$beta_0 = 0, beta_1 = 1$ のとき $K_f$ は古典 Bayesian inverse-variance weighting と完全一致*。Project 1 の logistic はこの Bayesian 解の一般化である。
+
+#table(
+  columns: (1.4fr, 1.7fr, 1.7fr),
+  inset: 4pt,
+  [自由度], [Bayesian 解], [Project 1 logistic 解],
+  [baseline], [$tau_("pred") = 1$ で固定], [$beta_0$ で自由(SPSA で学習)],
+  [感応度],   [exactly $1$],            [$beta_1$ で自由],
+)
+
+なぜ純粋 Bayesian にしないか:
+
++ forward model は perfect な Gaussian 観測者ではない(MyoSuite では bias / nonlinearity あり)→ $tau_("pred") = 1$ に固定するのは強過ぎる前提。
++ $v_f$ は真の variance ではなく EMA 推定の noisy proxy → 強くスケールしたくない場合がある($beta_1 < 1$)。
++ SPSA に *task-specific な最適点* を探させたい → 2 自由度の方が表現力が高い。
+
+==== 何が決まり、何が学習されるか
+
+#table(
+  columns: (1.5fr, 1fr, 2.5fr),
+  inset: 4pt,
+  [要素], [固定 / 学習], [備考],
+  [$sigma(z)$ の関数形], [固定], [ロジスティック sigmoid を選択(範囲 $(0,1)$ + 滑らか + 微分可能)],
+  [$log$ 変換], [固定], [reliability の指数スケールを線形化],
+  [$beta_(0,f)$], [SPSA で学習], [baseline gain $sigma(beta_(0,f))$ の場所],
+  [$beta_(1,f)$], [SPSA で学習], [reliability への感応度],
+  [$r_f(t)$], [within-trial で動的更新], [EMA から step ごとに変化],
+  [$K_f(t)$], [毎 step 計算], [$r_f$ と $beta$ から決まる],
+)
+
+したがって *$K_f(t)$ は (i) 関数形と log 変換、(ii) SPSA が学習した 2 自由度、(iii) within-trial の reliability 動態、 の 3 つの組合せで決まる*。各 field $f$ が独立に $beta_(0,f), beta_(1,f)$ を持つので、qpos / qvel / act / tip_pos / reach_err それぞれが「自分の reliability の信じ方」を独自に学習できる。これが C2 で観察された field-wise specialization(qpos だけ $beta_0$ が深く負、reach_err は $beta_1 approx 0$ で flat)を可能にする構造的選択である。
+
 === Across-trial layer: SPSA outcome adaptation
 
 within-trial layer の挙動は $beta = {beta_(0,f), beta_(1,f)} in RR^10$ に支配される。 $beta$ をどう決めるかは、reach 終了後の reaching outcome から学習する。
