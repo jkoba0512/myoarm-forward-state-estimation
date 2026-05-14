@@ -68,31 +68,38 @@ tip\_pos, and reach\_err sensory channels.
 Approximation (SPSA) updates the meta-parameters $\beta$ from the
 per-episode reaching outcome. Plugging this observer into a
 joint-space PD controller reveals four findings. \emph{First},
-default within-trial reliability adaptation produces $K\!\approx\!
-0.6$--$0.7$ across the focused noise--delay grid; under a multi-step
-($H{=}8$) supervised forward model whose closed-loop optimum is
-$K{=}0$, this rule is structurally misaligned and trails $K{=}0$ by
-23--29\,cm. \emph{Second}, across-trial SPSA on a single delay-18
-cell converges $\beta$ to a regime where field-wise $K$ specializes
-(qpos has both the most-negative intercept,
+default within-trial reliability adaptation produces field-wise
+gains $K_f\!\in\![0.3,\,0.98]$ across the focused noise--delay grid
+(qvel most-suppressed, qpos / act / tip\_pos / reach\_err close to
+$K{=}1$ at delay-$0$); under a multi-step ($H{=}8$) supervised
+forward model whose closed-loop optimum is $K{=}0$, this rule is
+structurally misaligned and trails $K{=}0$ by $23$--$29$\,cm. \emph{Second}, across-trial SPSA on a single delay-$18$ cell
+\emph{closes most of the default-reliability gap on that cell}:
+the per-iter outcome smoothed over the last $20$ iterations reaches
+the $K{=}0$ baseline ($\approx\!0.49$\,m vs $0.50$\,m), while a
+fresh evaluation deploying the final $\beta$ on independent
+episodes leaves a residual of $\sim\!6$\,cm. Field-wise $K$
+specialises: qpos takes both the most-negative intercept,
 $\beta_{0,\mathrm{qpos}}\!\approx\!-1.5$, and the steepest slope,
-$\beta_{1,\mathrm{qpos}}\!\approx\!0.9$) and the smoothed training-
-time outcome reaches $\approx\!0.49$\,m (last-$20$-iter mean),
-within $1$\,cm of the $K{=}0$ baseline $0.50$\,m; a fresh evaluation
-deploying the final $\beta$ on $10$ independent episodes gives
-$0.56$\,m, leaving a residual $\sim\!6$\,cm to $K{=}0$. \emph{Third}, multi-cell SPSA over the full grid yields
-only $3$--$5$\,cm improvement at delay-18 cells: cell-heterogeneous
-reliability profiles resist a single global $\beta$. \emph{Fourth},
-transferring the ReachFixed-learned $\beta$ to the variable-target
-ReachRandom variant hurts; on ReachRandom, where the closed-loop
-oracle $K^{\star}_{\mathrm{cl}}$ is multimodal across cells, the
-default within-trial reliability rule matches or beats $K{=}0$ at
-$2$ of $3$ delay-$18$ cells (by $1$--$3$\,cm), while the transferred
-$\beta$ trails $K{=}0$ at every delay-$18$ cell by
-$\sim\!4$--$5$\,cm. The right correction-gain rule is
-therefore task-dependent: outcome-driven adaptation closes the gap
-when the closed-loop optimum is uniform, while default reliability
-adaptation is competitive when the optimum is heterogeneous.
+$\beta_{1,\mathrm{qpos}}\!\approx\!+0.9$. The third and fourth
+findings expose the \emph{boundary conditions} of this single-
+$\beta$ recipe. \emph{Third}, multi-cell SPSA over the full grid
+improves over default reliability by only $3$--$5$\,cm at delay-$18$
+cells and not at all at delay-$0$ cells: a single global $\beta$
+cannot simultaneously fit cells whose reliability geometries differ,
+which we read as evidence that the adaptation parameterisation,
+not the SPSA loop, is underpowered. \emph{Fourth}, transferring
+the ReachFixed-trained $\beta$ to the variable-target ReachRandom
+variant \emph{hurts}: where the closed-loop oracle
+$K^{\star}_{\mathrm{cl}}$ is multimodal across cells, the
+transferred $\beta$ trails $K{=}0$ at every delay-$18$ cell by
+$\sim\!4$--$5$\,cm, while the same default reliability rule is
+competitive with $K{=}0$ (slightly better at $2$ of $3$ delay-$18$
+cells by $1$--$3$\,cm). The correction-gain rule is therefore
+task-dependent: a $\beta$ tuned on a uniform-$K^{\star}_{\mathrm{cl}}$
+task cannot be reused on a multimodal-$K^{\star}_{\mathrm{cl}}$
+task, and the right model class is context-conditioned $\beta$
+rather than a single global one.
 Offline-oracle-supervised gain predictors
 (Appendix~\ref{app:oracle-supervised}) serve as an upper-bound
 diagnostic against which agent-available adaptation can be measured.
@@ -167,14 +174,16 @@ Our contributions are summarised in four claims.
 \item \textbf{C1.} \emph{Default within-trial reliability adaptation
 is sensible but task-misaligned.} With $\beta_{0,f}\!=\!0$ and
 $\beta_{1,f}\!=\!0.5$ (a deliberately neutral prior), the
-within-trial rule produces $K\!\approx\!0.6$--$0.7$ across the
-focused $3$~noise $\times\,2$~delay grid. Under the $H{=}8$ forward
-model on this task, however, the closed-loop oracle
+within-trial rule produces strongly field-heterogeneous gains
+$K_f\!\in\![0.31,\,0.98]$ across the focused $3$~noise
+$\times\,2$~delay grid (qvel most-suppressed; qpos / act /
+tip\_pos / reach\_err close to $K{=}1$ at delay-$0$). Under the
+$H{=}8$ forward model on this task, however, the closed-loop oracle
 $K^{\star}_{\mathrm{cl}}$ is $K{=}0$ at every cell, so default
-reliability adaptation trails $K{=}0$ by 23--29\,cm in $\min$-tip
-error (Fig.\,\ref{fig:F_reliability_default}). Innovation-based
-reliability alone --- without an outcome signal --- cannot recover
-the right level on this task.
+reliability adaptation trails $K{=}0$ by $23$--$29$\,cm in
+$\min$-tip error (Fig.\,\ref{fig:F_reliability_default}).
+Innovation-based reliability alone --- without an outcome signal
+--- cannot recover the right level on this task.
 
 \item \textbf{C2.} \emph{Single-cell across-trial SPSA closes the
 gap.} Running SPSA on the per-episode $\min$-tip outcome on the
@@ -508,14 +517,11 @@ Sec.\,\ref{sec:results-3.1}).
 
 \subsection{Fixed-Lag Predictive State Observer}
 \label{sec:method-kalman}
-\emph{We do not claim to implement a full Kalman filter.} The
-observer below uses an innovation-update form structurally familiar
-from Kalman filtering, but it does not propagate covariance matrices
-$P$, $Q$, $R$ and does not compute an optimal Kalman gain. We use
-the form because it provides a controlled, scalar way to vary the
-reliance on sensory feedback versus forward prediction; the gain
-$K\!\in\![0,1]$ here is a \emph{sensory prediction-error correction
-gain}, not a covariance-derived Kalman gain.
+The observer uses an innovation-update form structurally familiar
+from Kalman filtering but does not propagate covariances and does
+not compute an optimal Kalman gain. The gain $K\!\in\![0,1]$ is a
+\emph{sensory prediction-error correction gain}, not a covariance-
+derived Kalman gain.
 
 The observation pipeline produces $y_t = h(x_{t-d}) + \eta_t$ where
 $h$ is the identity (the state vector and the observation share the
@@ -559,6 +565,10 @@ only the per-step innovation $e_t \!=\! y_t \!-\! \hat x_{t-d}$ does.
 
 We partition the 83-dim state into five \emph{sensory fields}: qpos
 (20), qvel (20), act (34), tip\_pos (3), and reach\_err (3). The
+partition is an engineering grouping driven by the MyoSuite state
+schema, but it admits a coarse biological reading: qpos and qvel
+are proprioceptive-like, act is efferent / muscle-command-like, and
+tip\_pos and reach\_err are visual / task-space-like. The
 target-position channel (3) is held at a fixed gain because the
 target is known and does not have a meaningful prediction error.
 For each field $f\!\in\!\mathcal{F}\!=\!\{\mathrm{qpos},
@@ -615,7 +625,9 @@ minimum tip-to-target distance,
 \label{eq:outcome}
 \end{equation}
 which the agent observes by proprioception and visual feedback
-after the reach. The across-trial loop minimises
+after the reach. We use $\mathrm{minTip}$ as an \emph{operational
+scalar proxy} for task outcome --- not as a claim that the nervous
+system observes this exact variable. The across-trial loop minimises
 $\mathbb{E}[\mathrm{minTip}(\beta)]$ where the expectation is over
 target draws (and, in the multi-cell variant, over uniformly drawn
 $(\sigma, d)$ cells from the focused grid).
@@ -767,13 +779,44 @@ running squared innovation, $K_f$ adapts upward when the channel
 becomes informative and downward when it becomes noisy.
 
 Across the focused $3$~noise~$\times\,2$~delay grid under the
-$H{=}8$ forward model, the resulting per-field correction gains
-settle near $K_f\!\approx\!0.55$--$0.72$ in the second half of each
-episode, with the largest field-to-field spread of $\sim\!0.15$ in
-the high-noise cells (qpos lowest, qvel and reach\_err highest).
-Closed-loop $\min$-tip averages $0.755$\,m across the six cells.
-For comparison, $K{=}0$ averages $0.495$\,m and $K{=}1$ averages
-$0.732$\,m on the same grid (Fig.\,\ref{fig:F_reliability_default}).
+$H{=}8$ forward model, the realised per-field $K_f$ averaged over
+the second half of a representative episode is highly heterogeneous
+($K_f\!\in\![0.31,\,0.98]$ across the grid; the per-field cell
+means are reported in Table~\ref{tab:default_kf}). qvel is the
+\emph{most-suppressed} channel (cell range $0.31$--$0.49$, mean
+$0.39$), reflecting bounded but informative velocity innovation;
+qpos, act, tip\_pos, and reach\_err settle in the $0.59$--$0.98$
+range, close to $K{=}1$ at delay-$0$ cells where the channel
+innovation collapses to near-zero. Closed-loop $\min$-tip averages
+$0.755$\,m across the six cells. For comparison, $K{=}0$ averages
+$0.495$\,m and $K{=}1$ averages $0.732$\,m on the same grid
+(Fig.\,\ref{fig:F_reliability_default}).
+
+\begin{table}[!htbp]
+\centering
+\caption{Realised per-field correction gain $K_f$ under default
+within-trial reliability ($\beta_{0,f}{=}0$, $\beta_{1,f}{=}0.5$).
+Each entry is the second-half mean of a single representative
+episode on the focused grid (target index $0$, $H{=}8$ forward
+model, joint-PD controller). qvel is the only field that the
+default rule deeply suppresses; the other four sit close to
+$K{=}1$ at delay-$0$ cells.}
+\label{tab:default_kf}
+\setlength{\tabcolsep}{4pt}
+\footnotesize
+\begin{tabular}{@{}ll ccccc@{}}
+\toprule
+noise & delay & qpos & qvel & act & tip\_pos & reach\_err \\
+\midrule
+none  & 0  & 0.96 & 0.49 & 0.91 & 0.97 & 0.98 \\
+none  & 18 & 0.70 & 0.31 & 0.69 & 0.59 & 0.68 \\
+high  & 0  & 0.96 & 0.49 & 0.92 & 0.96 & 0.97 \\
+high  & 18 & 0.69 & 0.32 & 0.71 & 0.68 & 0.69 \\
+xhigh & 0  & 0.90 & 0.45 & 0.91 & 0.94 & 0.94 \\
+xhigh & 18 & 0.67 & 0.31 & 0.69 & 0.64 & 0.68 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 The structural reason is that under the $H{=}8$ forward model the
 closed-loop oracle on this task is $K^{\star}_{\mathrm{cl}}\!=\!0$
@@ -849,14 +892,16 @@ closed-loop oracle within $1$\,cm on a single training cell.
 \caption[Single-cell SPSA convergence.]%
 {\textbf{Single-cell SPSA on $(\sigma{=}\mathrm{none},\,d{=}18)$
 under the $H{=}8$ forward model and joint-PD controller.}
-\emph{Top}: per-iteration $\min$-tip outcome (mean over the $S{=}12$
+\emph{Top}: per-iteration $\min$-tip outcome (mean over the $S{=}10$
 paired episodes per side); the dashed line marks the closed-loop
-$K{=}0$ baseline on this cell ($0.47$\,m). The outcome falls from
-$\approx\!0.61$\,m at iteration $0$ to $\approx\!0.53$\,m at
-iteration $99$, over $100$ SPSA iterations.
-\emph{Bottom}: final per-field $\beta$ vector. qpos has the
-most-negative intercept ($-1.5$), qvel the steepest slope ($0.9$);
-the resulting average per-field correction gains $K_f$ specialise.}
+$K{=}0$ baseline on this cell ($0.50$\,m). The per-iter outcome
+falls from $\approx\!0.61$\,m at iteration $0$ to a last-$20$-iter
+mean of $\approx\!0.49$\,m, reaching the $K{=}0$ baseline in the
+smoothed training-time signal; a fresh deployed evaluation of the
+final $\beta$ gives $0.56$\,m (residual $\sim\!6$\,cm to $K{=}0$).
+\emph{Bottom}: final per-field $\beta$ vector. qpos has both the
+most-negative intercept ($-1.5$) and the steepest slope ($+0.9$);
+the resulting per-field correction gains $K_f$ specialise.}
 \label{fig:F_spsa_single}
 \end{figure}
 
@@ -880,7 +925,7 @@ paired draws). \emph{Bottom}: per-cell $\min$-tip at iteration $100$
 for $K{=}0$, default-reliability, and the multi-cell-trained $\beta$.
 Improvement over default reliability is $3$--$5$\,cm at delay-18
 cells and $\sim 0$\,cm at delay-0 cells; the multi-cell $\beta$
-still trails $K{=}0$ by $13$--$19$\,cm at delay-18 cells.}
+still trails $K{=}0$ by $19$--$22$\,cm at delay-18 cells.}
 \label{fig:F_spsa_fullgrid}
 \end{figure}
 
@@ -906,9 +951,12 @@ realised $\log r_f(t)$ range) to drive every cell's $K_f$ near $0$;
 SPSA does not reach this regime in $100$ iterations because each
 intermediate $\beta_0$ value is already differentiable improvement
 in some cells and worse in others. The cell-heterogeneity bottleneck
-is therefore not an SPSA failure --- the single-cell run of C2
-converged --- but a fundamental limit of a single global $\beta$
-when the reliability geometry varies across cells.
+is therefore not a failure of outcome adaptation itself --- the
+single-cell run of C2 converged --- but evidence that the
+parameterisation, a single global $\beta\!\in\!\mathbb{R}^{10}$,
+is underpowered when the reliability geometry varies across cells.
+A context-conditioned $\beta$ (predicted from $(\sigma, d)$ or
+from running innovation statistics) is the natural next model.
 
 \subsection{Task transfer reveals task-dependence (C4)}
 \label{sec:results-c4}
@@ -1018,14 +1066,19 @@ $\beta$ during reaching) rather than only across trials.
 \noindent\textbf{Single-$\beta$ adaptation has a structural ceiling
 under cell heterogeneity.} The C3 result --- multi-cell SPSA closes
 only $3$--$5$\,cm of the $\sim\!29$\,cm gap at delay-$18$ cells, and
-none at delay-$0$ cells --- is not an SPSA convergence issue. It is
-geometric: under $H{=}8$ on ReachFixed, $K^{\star}_{\mathrm{cl}}$ is
-$K{=}0$ at every cell, but the realised reliability $r_f(t)$ trace
-differs across cells. A single global $\beta_{0,f}$ that pushes $K$
-to nearly $0$ at the high-noise cell over-suppresses at the
-low-noise cell and vice versa. The natural fix is a per-cell or
-per-context $\beta$, which corresponds biologically to context-
-dependent gating; we have not implemented it here. A
+none at delay-$0$ cells --- should not be read as a failure of
+outcome adaptation itself. The single-cell C2 run converged, and
+the structural reason for the multi-cell ceiling is geometric:
+under $H{=}8$ on ReachFixed, $K^{\star}_{\mathrm{cl}}\!=\!0$ at
+every cell, but the realised reliability $r_f(t)$ traces differ
+substantially across cells (Table~\ref{tab:default_kf}). A single
+global $\beta_{0,f}$ that pushes $K$ to nearly $0$ at the high-
+noise cell over-suppresses at the low-noise cell and vice versa.
+C3 therefore evidences that the \emph{adaptation parameterisation},
+not the outcome loop, is underpowered: a context-conditioned $\beta$
+(predicted from $(\sigma, d)$ or from running innovation statistics)
+is the natural next model class, corresponding biologically to
+context-dependent gating; we have not implemented it here. A
 related theoretical question is whether $K^{\star}_{\mathrm{cl}}$
 under reasonable controllers admits a low-dimensional shared
 structure across cells; if it does, a context-dependent extension of
@@ -1034,17 +1087,17 @@ $\beta$ should suffice.
 \smallskip
 
 \noindent\textbf{Task transfer reveals that the right rule depends
-on $K^{\star}_{\mathrm{cl}}$ geometry.} The C4 finding is
-paradoxical at first glance: default within-trial reliability,
-trained on nothing, beats $K{=}0$ on ReachRandom; but
-\emph{outcome-trained} $\beta$ from ReachFixed loses to $K{=}0$ on
-ReachRandom. The mechanism is that $K^{\star}_{\mathrm{cl}}$ on
-ReachRandom is multimodal across cells ($\{0, 0.25, 1\}$,
-Appendix~\ref{app:reach-random}), so the default reliability rule's
-$K_f\!\approx\!0.6$--$0.7$ accidentally lands close to the per-cell
-optima in the delay-$18$ rows. Pushing $K_f$ globally down (as the
-ReachFixed-trained $\beta$ does) is correct on the source task but
-wrong on the target. The biological reading is that an agent
+on $K^{\star}_{\mathrm{cl}}$ geometry.} The two C4 findings combine
+as follows. \emph{First}, default within-trial reliability is
+competitive with $K{=}0$ on ReachRandom and slightly better at $2$
+of $3$ delay-$18$ cells (by $1$--$3$\,cm); \emph{second}, the
+ReachFixed-trained $\beta$ trails $K{=}0$ at every delay-$18$ cell
+by $\sim\!4$--$5$\,cm. The mechanism is that $K^{\star}_{\mathrm{cl}}$
+on ReachRandom is multimodal across cells ($\{0, 0.25, 1\}$,
+Appendix~\ref{app:reach-random}), so the default field-wise gains
+happen to land near the per-cell optima in the delay-$18$ rows.
+Pushing $K_f$ globally down (as the ReachFixed-trained $\beta$
+does) is correct on the source task but wrong on the target. The biological reading is that an agent
 trained on a uniform-optimum task and asked to perform a multimodal-
 optimum variant should be expected to perform worse than an agent
 with a more conservative prior --- a falsifiable prediction about
@@ -1091,7 +1144,12 @@ plugged into a full cortico-cerebellar loop. (e)~The behaviour-
 cloned controller (Appendix~\ref{app:oracle-supervised}) washes out
 estimator differences at the demonstration scale we test;
 closed-loop state-estimation benchmarks should keep this in mind
-when choosing the downstream policy.
+when choosing the downstream policy. (f)~The oracle-supervised
+predictor of Appendix~\ref{app:oracle-supervised} is intentionally
+excluded from the main adaptive observer because it requires per-
+condition $K$-sweep labels the agent cannot generate online; it is
+reported only as a non-agent-available upper bound against which
+the within-trial + outcome adaptation of C2 can be measured.
 
 % ============================================================
 \section{Conclusion}
