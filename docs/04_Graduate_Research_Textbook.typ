@@ -1018,6 +1018,98 @@ $ "minTip"(beta)  =  min_(t in [0,T]) | p_"tip"(t) - p_"tgt" | $
 + 「脳が literally このように計算している」とは主張しない。「リーチがどれくらいうまくいったか」の置き換えとして使うだけ。
 ], color: green, fill: pale-green)
 
+==== なぜ最終位置でなく "最も近づいた距離" で評価するのか
+
+ここで自然な疑問: 「リーチの結果」を測るなら episode 最終時刻の $|p_"tip"(T) - p_"tgt"|$ (final-tip) を使ってもよさそうなのに、なぜ全 step の最小 $min_t |p_"tip"(t) - p_"tgt"|$ (min-tip) を選ぶのか? 理由は 4 つある。
+
+*1. リーチは「到達した時点で成功」が自然*
+
+人間がコップに手を伸ばすとき、目的は *指先がコップに届くこと*。届いた瞬間に成功であり、その後手が少し戻ったり震えたりしても task の評価には関係ない。
+
+- final-tip: 一度ぴったり当てたあと手が震えて 2 cm 離れたら「2 cm の miss」と判定。一度も近づけなかった失敗試行と同じ扱いになり得る。
+- min-tip: 一度でも届けば「届いた」と評価される。届かなければ「届かなかった」。task 目的(=接触)と直接対応する。
+
+*2. MyoSuite の reach 設定には "止まる" 動作がない*
+
+シミュレーションは *12 秒(600 step)の固定長 episode*。controller(joint-PD)は target qpos に向けて筋指令を出し続け、明示的な「停止」シグナルがない。
+
+- 早く target に到達した場合 → その後も 12 秒間筋活性を出し続ける → 筋粘性で微小振動
+- 最終 step ($t = T$)の位置は controller の収束 + 筋骨格振動で偶然決まる
+- 「リーチが成功したか」と「12 秒後にどこにいるか」は別の話
+
+reach task では前者を測りたいので min-tip が適切。
+
+*3. Overshoot を二重カウントしない*
+
+筋骨格 controller では、reach 中盤で *target を一度通り過ぎる(overshoot)* ことがある。
+
+```text
+時刻 t (s) :  距離 (m)
+0.0       :  0.40   (出発位置)
+1.0       :  0.20
+2.5       :  0.04   ← 最も近い瞬間 (min-tip)
+3.0       :  0.06   (少し戻る、overshoot 後)
+6.0       :  0.08   (落ち着く)
+12.0      :  0.09   (final-tip)
+```
+
+- min-tip = `0.04` → *ピーク到達精度* を直接測れる
+- final-tip = `0.09` → 落ち着いた後の位置だが「controller が overshoot して戻ってきた」という余計な情報が混ざる
+
+論文 C1-C4 は「reliability adaptation が *届く能力* に効くか」を問うので、controller 静定後のブレではなくピーク精度を評価したい。
+
+*4. paper では両方の metric を記録している*
+
+実際の評価では `metrics.csv` に複数の metric が同時に記録されている:
+
+#table(
+  columns: (1.4fr, 2.7fr),
+  inset: 4pt,
+  [metric], [意味],
+  [`final_tip_error`], [最終 step($t = T$)の距離],
+  [`min_tip_error`],   [episode 中の最小距離(論文の headline metric)],
+  [`max_tip_error`],   [episode 中の最大距離(発散検出用)],
+  [`overshoot`],       [`max - min`(振動の振幅)],
+  [`success_005`],     [一度でも 5 cm 以内に入ったか(bool)],
+  [`success_010`],     [一度でも 10 cm 以内に入ったか(bool)],
+  [`success_015`],     [一度でも 15 cm 以内に入ったか(bool)],
+)
+
+C1-C4 の headline は min-tip だが、final-tip も計算済みで Appendix で参照可能。reviewer に「final で評価したらどう違うか」と問われても回答できる構造になっている。
+
+===== 生体研究との対応
+
+人間 reach の運動神経科学でも、closest approach (CA) や hand velocity profile の peak / touch time といった min-tip 系の metric は伝統的に使われている。理由はここまでと同じ:
+
++ リーチの目的は *ターゲットに到達すること*(touch / grasp の前段)
++ 一度到達した後の手の動きは別問題(hold / grasp / reset 等)
++ 視覚 + proprioception で「届いた感覚」を得るのは *closest approach の瞬間*
+
+つまり min-tip は生体研究との対応も悪くない。
+
+===== final-tip を使うべき他の task(反例)
+
+逆に、 final-tip が望ましい場合もある:
+
+#table(
+  columns: (1.4fr, 2.6fr, 2fr),
+  inset: 4pt,
+  [task], [評価したい性質], [適切な metric],
+  [holding], [target 位置で静止して保持],     [final-tip + variance],
+  [tracking], [連続的に target を追跡],      [time-averaged tracking error],
+  [end-state matters], [終了時点が評価される], [final-tip(or final-state)],
+)
+
+これらは「一度通れば OK」ではなく「最後にどこにいるか」が直接 task definition の一部。reach task はこのカテゴリに該当しないので min-tip が適切。
+
+#callout("まとめ", [
+$min_t |p_"tip"(t) - p_"tgt"|$ を選ぶ理由:
++ task 目的(届くこと)と直接対応
++ 12 秒固定 episode で controller が停止しない事情の回避
++ overshoot をピーク精度と分離して測れる
++ 生体 reach 研究の古典的 metric と整合
+], color: green, fill: pale-green)
+
 closed-loop minTip は $beta$ に対して解析的勾配を取れないので(env step → EMA → sigmoid → control → non-smooth min を経由する)、SPSA(Spall 1992)で勾配 free 最適化する。
 
 ```text
