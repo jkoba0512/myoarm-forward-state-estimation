@@ -891,7 +891,7 @@ $ tau dot(v)(t)  =  - v(t) + "input"(t) $
 
 $ v(t + Delta t)  =  (1 - (Delta t) / tau)   v(t) + ((Delta t) / tau)   "input"(t) $
 
-= EMA 形式と等価。$alpha = (Delta t) / tau$、つまり EMA の $alpha$ は神経 leaky integrator の *time constant $tau$ の逆数* に対応する。
+これは EMA 形式と等価で、$alpha = (Delta t) / tau$ と同定できる。つまり EMA の $alpha$ は神経 leaky integrator の *time constant $tau$ の逆数* に対応する。
 
 #callout("biological reading", [
 Project 1 の within-trial layer は、*innovation の二乗を入力とする生物学的 leaky integrator* と読める。小脳 / 大脳基底核の short-time-scale neural integrator が、step ごとの sensory prediction error の大きさを統合し続けている、というモデルに対応する。
@@ -1609,28 +1609,46 @@ uv run python scripts/evaluate_closed_loop.py \
 
 = 主要結果の読み方
 
-ここまでで、closed-loop pipeline、forward model、predictive state observer、二層適応則(within-trial reliability + across-trial SPSA)、そして Appendix C の oracle-supervised upper bound を説明した。ここからは、その道具を使って論文の主張 C1-C4 を読む。
+ここまでで道具(forward model、 predictive state observer、 within-trial / across-trial の二層適応、 Appendix C の oracle-supervised 教材)が揃った。ここからはそれらを使って論文の主張 C1〜C4 を読む。
+
+== 4 つの主張をひとことで
 
 #table(
   columns: (0.6fr, 3.3fr, 2.6fr),
   inset: 4.5pt,
-  [Claim], [内容], [意味],
-  [C1], [default within-trial reliability ($beta_(0,f)=0$, $beta_(1,f)=0.5$)は field-wise heterogeneous な中-高 gain を出し、$H=8$ 下では task-optimal $K=0$ から $23$-$29$ cm 外す], [innovation だけでは task を知らない],
-  [C2], [single-cell SPSA は trained cell 上で default-reliability vs $K=0$ gap の $23$ cm のうち $approx 17$ cm を回復($0.77 -> 0.56$ m vs $K=0$ at $0.50$ m)], [outcome layer を足せば agent-available signal だけで closed-loop optimum に近づく],
-  [C3], [multi-cell SPSA は delay-18 cells で $3$-$5$ cm の改善どまり、delay-0 cells で改善ゼロ。SPSA の失敗ではなく、global single-$beta$ の parameterisation が underpowered], [次の model class は context-conditioned $beta$],
-  [C4], [ReachFixed-trained $beta$ を ReachRandom に転移すると全 delay-18 cells で $K=0$ を $tilde 4$-$5$ cm 下回る。default reliability の方が逆に競合的], [correction-gain rule は task-dependent ($K^*_("cl")$ geometry に依存)],
+  [Claim], [何が分かったか], [一言要約],
+
+  [C1],
+  [初期設定の reliability ルール($beta_0=0, beta_1=0.5$)では、6 つの cell すべてで *目標 $K=0$ から 23〜29 cm 離れた* min-tip が出る。],
+  [innovation を眺めるだけでは「センサーを信じるか予測を信じるか」の正しい比率にたどり着けない。],
+
+  [C2],
+  [1 つの cell に絞って SPSA を 100 回まわすと、その cell で *23 cm の差のうち約 17 cm を埋める*(0.77 m → 0.56 m、 $K=0$ は 0.50 m)。],
+  [リーチの結果(`minTip`)1 つを見るだけで、 agent は自分で gain ルールを調整できる。],
+
+  [C3],
+  [6 cell から毎回ランダムに 1 つ選んで SPSA を回しても、 *delay 18 の 3 cell でわずか 3〜5 cm の改善*、 delay 0 の 3 cell では改善ゼロ。],
+  [SPSA の問題ではなく、 $beta$ を 10 個の数だけで表現する設計の限界。 cell ごとに違う $beta$ を出す仕組みが必要。],
+
+  [C4],
+  [ReachFixed で学んだ $beta$ を ReachRandom にそのまま持ってくると *悪化する*($K=0$ を 4〜5 cm 下回る)。一方、 初期設定 reliability の方は意外にも *拮抗* する。],
+  [正しい gain ルールはタスク次第。 学習結果は別のタスクには移植できない場合がある。],
 )
 
-== C1: default reliability is task-misaligned
+== C1 ─ 初期設定の reliability ルールはタスクに合わない
 
-F_reliability_default は、$H=8$ forward model + joint-PD controller 下で $K=0$ / $K=1$ / default reliability(`beta_0=0, beta_1=0.5`)の closed-loop min-tip を 6 cell で比較した結果である。
+=== どんな実験か
+
+二層 adaptation の *外側のループ(SPSA)を一切回さず*、 within-trial ルールだけを default 設定($beta_(0,f) = 0$, $beta_(1,f) = 0.5$)で動かし、 結果の min-tip を 6 cell すべてで測った。
 
 #figure(
   image("../figures/F_reliability_default.png", width: 90%),
-  caption: [default within-trial reliability は K=0 を $23$-$29$ cm 下回る。$K^*_("cl")$=0 一様な ReachFixed grid 下で innovation reliability だけでは task-optimal な gain を出せない構造的限界を示す。]
+  caption: [青 = $K=0$(forward model だけ信じる)、 橙 = $K=1$(センサーだけ信じる)、 緑 = default reliability。 default は $K=0$ を *23〜29 cm 下回る*。],
 )
 
-実 diagnostic dump から、default rule が出す per-field $K_f$ は強く非対称:
+=== 何が起きているか — 実測の per-field $K_f$
+
+default ルールが各 cell で出す per-field の correction gain $K_f$ を、 1 episode 走らせて取得した結果:
 
 #table(
   columns: (1fr, 0.8fr, 0.8fr, 0.8fr, 0.8fr, 0.8fr),
@@ -1644,96 +1662,145 @@ F_reliability_default は、$H=8$ forward model + joint-PD controller 下で $K=
   [`xhigh, d=18`], [0.67], [0.31], [0.69], [0.64], [0.68],
 )
 
-つまり default rule のもとでは、*qvel だけ* が一貫して低 gain ($0.31$-$0.49$)、他 4 field は中-高 gain($0.59$-$0.98$)に張り付く。innovation reliability は task を知らないので、$K^*_("cl")=0$ という task-optimal な水準には届かない。
+読み取れる事実:
+
++ *qvel(関節速度)だけ* が一貫して低い gain($0.31$〜$0.49$)。
++ それ以外の 4 field は中〜高めの gain($0.59$〜$0.98$)に張り付く。
++ どの cell でも *$K^*_("cl") = 0$(センサーを 100% 無視するのが正解)* なのに、 default ルールはそこから遠く離れている。
+
+=== なぜ届かないか
+
+ルールの形が原因。 $K_f = sigma(beta_(0,f) + beta_(1,f) log r_f)$ で、 $beta_(0,f) = 0$ のとき baseline は $sigma(0) = 0.5$。 ここから *$K_f$ をほぼ 0 まで下げるには*、 $log r_f$ が大きな負の値(=信頼度が極端に低い、 つまり innovation が極端に大きい)になる必要がある。 H=8 forward model は十分正確なので innovation はそこまで大きくならず、 $K_f$ は中〜高に張り付いたまま。
 
 #callout("C1 の核心", [
-*innovation だけ追っても、forward model がどれくらい task に有用かは分からない*。\
-sensor 信頼度と "forward model に任せて良いか" は別の情報。\
-後者は task outcome を見ないと決まらない。
+*innovation を見るだけでは、 forward model が「タスクの目的に対して」どれくらい役立つかは分からない*。\
+\
+- innovation は「センサーとの予測ズレ」を教えてくれる。\
+- でも「予測でリーチが届くかどうか」は、 リーチが終わって *結果(`minTip`)を見るまで* 分からない。\
+\
+つまり within-trial layer 単独では、 タスクが要求する gain 水準(この場合 $K=0$)に到達する手段がない。
 ], color: green, fill: pale-green)
 
-== C2: single-cell SPSA closes most of the gap
+== C2 ─ 1 つの cell で SPSA を回すと、差はほぼ埋まる
 
-F_spsa_single は、 $(sigma="none", d=18)$ という 1 cell 上で SPSA を 100 iteration 回した結果である。
+=== どんな実験か
+
+最も難しい 1 cell( $sigma = "none"$, $d = 18$ステップ = 0.36 秒の遅延)に *固定* して、 SPSA を 100 iteration 走らせて $beta$ を学習させた。 各 iteration は 10 episode × $plus.minus$ 2 セット = 20 episode。
 
 #figure(
   image("../figures/F_spsa_single.png", width: 88%),
-  caption: [上: per-iter outcome trajectory(青)+ 10-iter running mean(濃青)+ $K=0$ baseline 0.50 m(橙破線)。下: final $beta$。qpos は intercept ($-1.5$)も slope ($+0.9$)も先頭で、field-wise specialisation が outcome から自動生成される。]
+  caption: [上: SPSA を回すごとに `minTip`(=リーチ結果)がどう変わったか。 細い青線が 1 iter ごとの値、 太い濃青が 10 iter の移動平均、 橙破線が $K=0$ baseline(0.50 m)。 下: 100 iter 後の per-field $beta$。 qpos が intercept(下方修正)も slope(感度)も先頭。],
 )
 
-主要数値:
+=== 数字の読み方
 
-- per-iter outcome は $approx 0.61$ m → $approx 0.53$ m に下降(last iter)
-- 10-iter running mean(訓練時 smoothed signal)は $K=0$ baseline $0.50$ m まで一瞬到達
-- 別途 fresh deployment(final $beta$ を独立 10 episode に適用)で `min-tip = 0.56` m → residual $tilde 6$ cm
-- default reliability($0.77$ m)と比べて `0.77 -> 0.56` の `17` cm gap recovery
+- 1 iter ごとの outcome: 初期 $approx 0.61$ m → 最終 iter $approx 0.53$ m
+- 10-iter 移動平均(訓練ノイズを均した値): 一時的に $K=0$ baseline の 0.50 m に到達
+- 学習済み $beta$ を *別の 10 episode で改めて評価*(deployed eval): 0.56 m
+- *元の default ルール*: 0.77 m
+- 差し引き: $0.77 → 0.56$ で 21 cm 改善。 $K=0$ までの残差 6 cm。
+
+=== どこに「学習」が現れたか
+
+`final_beta.json` を見ると、 5 field の $beta$ がそれぞれ異なる方向に動いている。 特に *qpos* は intercept $beta_(0,"qpos") approx -1.5$、 slope $beta_(1,"qpos") approx +0.9$ と他 field より際立つ。 これは「関節位置センサーの信頼度は通常時は強く抑え、 innovation が増えたら敏感に反応せよ」という field-wise specialisation が outcome 駆動で自動的に出現したことを意味する。
 
 #callout("C2 の核心", [
-agent は K-sweep oracle ラベルを使わずに、per-episode reaching outcome だけから $beta$ を更新できる。\
-trained cell では default reliability gap の $approx 74%$ を SPSA で閉じる。\
-field-wise specialisation(qpos が深く suppressed、reach_err slope が flat 化)は outcome から自然と出る。
+*リーチの結果(`minTip`)を見るだけで、 agent は自分の gain ルールを正しく調整できる*。\
+\
+- 与えられる情報: per-episode で 1 個のスカラー(届いた距離の最小値)。\
+- それだけから 10 次元の $beta$ 全部を SPSA で更新する。\
+- 結果: default では 0.77 m だったリーチが 0.56 m に。 $K=0$ という「センサーを使うな」という極端な正解とほぼ同等。\
+\
+教師信号(=「最適 $K$ はこれ」というラベル)を *外から与えられない* 設定で、 agent が自力で改善できることが分かった。
 ], color: green, fill: pale-green)
 
-== C3: multi-cell SPSA reveals parameterisation ceiling
+== C3 ─ 6 cell 全部を相手にすると、 改善は頭打ちになる
 
-F_spsa_fullgrid は、SPSA を 6 cell uniform-random sampling で 100 iteration 回した結果である。
+=== どんな実験か
+
+C2 では 1 cell に固定したが、 *6 cell から毎 iteration でランダムに 1 つを選んで* SPSA を回した。 1 つの $beta$ が 6 cell すべてに対応できるかをテスト。
 
 #figure(
   image("../figures/F_spsa_fullgrid.png", width: 90%),
-  caption: [上: 6-cell mean outcome trajectory。$K=0$ grid mean 0.49 m(橙破線)に届かない。下: per-cell min-tip。delay-18 cells で $3$-$5$ cm の改善、delay-0 cells で改善ゼロ。$K=0$ からは $19$-$22$ cm(d=18) / $tilde 28$ cm(d=0)離れたまま。]
+  caption: [上: 6 cell の平均 `minTip` の SPSA 軌跡。 $K=0$ の 6 cell 平均(0.49 m)に届かない。 下: 100 iter 後の各 cell の `minTip` を、 $K=0$(青)・default reliability(緑)・SPSA 学習後 $beta$(紫)で比較。],
 )
 
-主要観察:
+=== 数字の読み方
 
-- delay-18 cells: 3 cells すべてで default reliability より $3$-$5$ cm 改善。 $K=0$ から $19$-$22$ cm trail。
-- delay-0 cells: SPSA はほとんど改善せず、$K=0$ から $tilde 28$ cm trail。
-- 全 cell で $K^*_("cl")=0$ なのに、 single global $beta$ では reach できない構造的限界。
+- delay 18 の 3 cell: default に対し $3$〜$5$ cm の改善。 ただし $K=0$ までは依然 $19$〜$22$ cm 離れている。
+- delay 0 の 3 cell: SPSA の改善はほぼ *ゼロ*。 $K=0$ までは $tilde 28$ cm 離れている。
+- どの cell も *$K^*_("cl") = 0$ が正解* なのに、 1 つの $beta$ ではそこまでたどり着けない。
 
-#callout("C3 の核心: SPSA の失敗ではない", [
-single-cell SPSA(C2)は確かに収束した。problem は SPSA loop 自体ではなく、$beta in RR^10$ という single-global parameterisation が、 cell ごとに異なる innovation geometry を *同時に* 抑えられないこと。\
+=== なぜ頭打ちになるか — *parameterisation の限界*
+
+$beta$ は実数 10 個分($beta_(0,f)$ 5 個 + $beta_(1,f)$ 5 個)。 これだけで *6 つの環境すべて* の最適点を表現することはできない。
+
+具体例:
+- 高ノイズ cell では innovation が大きいので $K_f$ が小さくなりやすい → そのまま $K_f approx 0$ に近づける $beta_(0,f)$ を選びたい
+- 低ノイズ cell では innovation が小さいので $K_f$ が大きくなりやすい → 上と同じ $beta_(0,f)$ では over-suppress(下げ過ぎ)になる
+
+1 つの $beta$ で両立しないので、 SPSA は妥協点に収束する。 これは *SPSA という最適化手法の失敗ではない*(C2 で 1 cell なら届く)。 *「innovation の情報だけ受けて $beta$ を出す」という設計* の限界。
+
+#callout("C3 の核心 — SPSA が悪いのではない", [
+1 cell に絞れば SPSA は確かに $K=0$ レベルまで持っていける(C2)。 multi-cell で頭打ちになるのは、 *$beta in RR^10$ という設計が cell の多様性に対して表現力不足* だから。\
 \
-高ノイズ cell で $K_f$ を 0 まで押し下げる $beta_(0,f)$ を選ぶと、低ノイズ cell では over-suppress、逆も真。一つの $beta$ で全 cell の "trust the model" を出すには、reliability の絶対水準を見ず context を見る必要がある。
+解決の方向: $beta$ を *固定数* ではなく、 *cell ごとに変える仕組み* にする。 たとえば「直近の innovation 統計を見て、 そのときの $beta$ を吐く小さな network」 = context-conditioned $beta$ network。 これは Project 1.5 の自然な目標。
 ], color: amber, fill: pale-amber)
 
-natural next model:
+=== 次のモデル形(将来研究)
 
 ```text
 beta_network(
-  sliding window of field-wise innovation statistics
-    (mean, variance, autocorrelation)
+  直近の field ごと innovation 統計
+    (平均, 分散, 自己相関)
 ) -> beta in R^10
 ```
 
-`(sigma, d)` を auxiliary input にすることもできるが、生体は noise/delay label を直接観測しないので biological framing では innovation window が primary input。
+`(sigma, d)` を補助入力にすることもできるが、 生体はノイズや遅延の数値を直接観測しないので、 *innovation の時系列だけ* を主入力にするのが生物学的整合性が高い。
 
-== C4: task transfer reveals task-dependent rule
+== C4 ─ ルールはタスク次第:転移は必ずしも成功しない
 
-ReachRandom(target が episode 毎にランダム抽出)に同じ observer を転移すると、興味深い反転が起きる。
+=== どんな実験か
+
+これまでは ReachFixed(リーチ目標が毎エピソード同じ位置)で学習・評価していた。 ここでは *ReachRandom*(目標位置が毎エピソードランダムに変わる)で同じ observer を試す。 比較するのは:
+
++ $K=0$ baseline
++ $K=1$ baseline
++ default reliability($beta_0=0, beta_1=0.5$)
++ *ReachFixed で学んだ $beta$* をそのまま使う(*転移*)
 
 #table(
   columns: (1.5fr, 0.7fr, 0.9fr, 0.9fr, 1fr, 1fr),
   inset: 4pt,
-  [cell], [$K=0$], [$K=1$], [default], [transferred $beta$], [$K^*_("cl")$],
+  [cell], [$K=0$], [$K=1$], [default], [転移 $beta$], [$K^*_("cl")$(本来の最適 K)],
   [`none, d=0`],   [0.670], [0.770], [0.781], [0.768], [$K=0$],
-  [`none, d=18`],  [0.642], [0.647], [0.631], [0.680], [$K=0.25$],
+  [`none, d=18`],  [0.642], [0.647], [*0.631*], [0.680], [$K=0.25$],
   [`high, d=0`],   [0.670], [0.770], [0.776], [0.768], [$K=0$],
-  [`high, d=18`],  [0.642], [0.639], [0.608], [0.692], [$K=0.25$],
+  [`high, d=18`],  [0.642], [0.639], [*0.608*], [0.692], [$K=0.25$],
   [`xhigh, d=0`],  [0.670], [0.762], [0.771], [0.759], [$K=0$],
-  [`xhigh, d=18`], [0.642], [0.627], [0.649], [0.686], [$K=1$],
+  [`xhigh, d=18`], [0.642], [0.627], [*0.649*], [0.686], [$K=1$],
 )
 
-数値の読み方:
+(default 列の太字: $K=0$ を上回った、 または同等のセル。)
 
-- ReachRandom の $K^*_("cl")$ は ${0, 0.25, 1}$ の 3 値を取る multimodal 構造 (Appendix E)。
-- delay-18 cells で *default reliability が $K=0$ を勝つ*(2 of 3 cells で $1$-$3$ cm)。default rule の $K_f approx 0.6$-$0.7$ が偶然 per-cell $K^*_("cl")=0.25$ に近いため。
-- 一方 *ReachFixed-trained $beta$* は全 delay-18 cell で $K=0$ を $tilde 4$-$5$ cm 下回る。source task では $K^*_("cl")=0$ 一様だったので $beta$ が gain を global に下げる方向に学習されており、target task の multimodal $K^*_("cl")$ には合わない。
+=== 何が起きているか — 反転現象
 
-#callout("C4 の核心: rule は task-dependent", [
-*correction-gain rule の "正解" は task 構造(=$K^*_("cl")$ geometry)に依存する*。\
-$K^*_("cl")$ が uniform な task では outcome adaptation が closes the gap。\
-$K^*_("cl")$ が multimodal な task では default reliability の方が逆に競合的(中-高 gain が偶然 multimodal optima に近い)。\
++ ReachRandom では *最適 $K$ が cell ごとに違う*: ${0, 0.25, 1}$ の 3 値が出る(multimodal な構造)。 ReachFixed では全 cell で $K=0$ 一様だったのと対照的。
++ *default reliability*(学習していない素のルール)は delay 18 の 3 cell のうち *2 つ* で $K=0$ より $1$〜$3$ cm 良い結果を出す。 これは default の $K_f approx 0.6$〜$0.7$ が偶然 multimodal な最適 $K = 0.25 - 1$ の中間に位置しているため。
++ 一方、 *ReachFixed で学んだ $beta$* は全 delay-18 cell で $K=0$ より $tilde 4$〜$5$ cm *悪い* 結果を出す。 ReachFixed の学習は「gain を全体的に下げる」方向に進んでいたが、 ReachRandom ではその方向が間違っていた。
+
+=== なぜ転移が失敗するか
+
+ReachFixed の SPSA は *「すべての cell で $K=0$ が正解」* という前提のもとで、 $beta$ を「gain を低く保つ」方向に最適化した。 ReachRandom はそもそも前提が違う(cell ごとに違う最適 $K$ を要求する)ので、 同じ $beta$ では逆効果になる。
+
+#callout("C4 の核心 — 正解のルールはタスク次第", [
+*correction-gain ルールの「正解」は、 そのタスクで「最適 $K$ がどう分布するか」によって決まる*。\
 \
-*testable computational hypothesis*: uniform-optimum task で trained agent は multimodal-optimum variant に転移すると性能を落とすはず、context-conditioned rule でない限り。
+- 「最適 $K$ がどの cell でも同じ」タスクでは、 outcome 学習(SPSA)が default ルールより良い。\
+- 「最適 $K$ が cell ごとに違う」タスクでは、 default ルールの方が偶然うまくフィットすることがある。\
+- 1 つの $beta$ を *別のタスクに移植しても改善する保証はない*。 ルール自体が cell-aware(状況依存)である必要がある。\
+\
+*仮説 (testable)*: 「最適 $K$ が一様」なタスクで学習した agent は、 「最適 $K$ がバラつく」タスクに転移したとき性能が落ちる。 これを実験的に確かめられる。
 ], color: green, fill: pale-green)
 
 = 研究者としての作業手順
