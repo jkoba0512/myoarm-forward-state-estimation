@@ -1278,11 +1278,16 @@ Delta example 3:  (+1, +1, -1, +1, -1, +1, +1, -1, -1, +1)
 
 このベクトルを使って $beta$ を「全成分同時に $plus.minus c$ で揺らす」のが SPSA の核心。
 
-直交性 (orthogonality) という重要な性質を満たす:
+直交性 (orthogonality) という重要な性質を満たす。
 
-$ EE[Delta_i] = 0 quad ("各成分の平均は 0") $
-$ EE[Delta_i Delta_j] = cases(1 & "if " i = j, 0 & "if " i != j) quad ("独立性 + " Delta_i^2 = 1) $
-$ EE[Delta_j slash Delta_i] = EE[Delta_j] dot.c EE[1 slash Delta_i] = 0 quad (i != j) $
+(i) 各成分の平均は 0:
+$ EE[Delta_i] = 0 $
+
+(ii) 独立性 と $Delta_i^2 = 1$ より:
+$ EE[Delta_i Delta_j] = cases(1 \, & i = j, 0 \, & i != j) $
+
+(iii) 異なる成分の比の期待値が 0(SPSA 不偏性の核):
+$ EE[Delta_j \/ Delta_i] = EE[Delta_j] dot.c EE[1 \/ Delta_i] = 0 quad "for" quad i != j $
 
 最後の式が SPSA の不偏性を保証する。 *$i$ 番目の成分以外の摂動方向は期待値で消える* ので、 1 つの摂動 $Delta$ から全成分の勾配を *偏り無く* 推定できる。
 
