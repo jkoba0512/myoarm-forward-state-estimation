@@ -669,8 +669,8 @@ across-trial layer は episode を beach iteration の単位として SPSA で $
   [③], [$plus.minus$ 側で $S$ 個 episode 評価],
   [$beta_n^+ = beta_n + c_n Delta_n$、$beta_n^- = beta_n - c_n Delta_n$\
    各 $beta$ で $S$ 個 episode を独立 seed で走らせ、minTip 平均を取る:\
-   $o_n^+ = 1/S sum_(s=1)^S "minTip"(beta_n^+; "seed"_(n,s,+))$\
-   $o_n^- = 1/S sum_(s=1)^S "minTip"(beta_n^-; "seed"_(n,s,-))$],
+   $o_n^+ = 1/S sum_(s=1)^S "minTip"(beta_n^+ , "seed"_(n,s,+))$\
+   $o_n^- = 1/S sum_(s=1)^S "minTip"(beta_n^- , "seed"_(n,s,-))$],
   [④], [SPSA 勾配推定],
   [$hat(g)_n = (o_n^+ - o_n^-) / (2 c_n) dot.c Delta_n^(-1)$\
    ($Delta_n^(-1)$ は要素単位の逆数 = Rademacher なので $Delta_n$ 自身に等しい)],
@@ -697,12 +697,12 @@ across-trial layer は episode を beach iteration の単位として SPSA で $
   [$S$], [int], [paired samples per side(single-cell:`10` / full-grid:`12`)],
   [$beta_n^+, beta_n^-$], [$RR^10$], [perturbed evaluation 点],
   [$o_n^+, o_n^-$], [$RR_(>= 0)$], [$plus.minus$ 側の minTip 平均(meters)],
-  [$"minTip"(beta; "seed")$], [$RR$], [1 episode の min-tip distance(scalar outcome)],
+  [$"minTip"(beta , "seed")$], [$RR$], [1 episode の min-tip distance(scalar outcome)],
   [$hat(g)_n$], [$RR^10$], [SPSA 勾配推定],
   [$N$], [int], [iteration 総数($100$)],
 )
 
-ここで *学習されているのは* $beta$ そのもの。within-trial layer の動態 $v_f$ は触らない。SPSA は 10 次元の $beta$ 空間を *1 iteration あたり 2 評価*(forward と backward の paired perturbation)で探索する;有限差分なら 2 × 10 = 20 評価必要なところを 2 評価に圧縮する。Rademacher 摂動の使用と Spall schedule の組合せで確率的に局所最小に収束することが理論的に保証されている。
+ここで *学習されているのは* $beta$ そのもの。within-trial layer の動態 $v_f$ は触らない。SPSA は 10 次元の $beta$ 空間を *1 iteration あたり 2 評価*(forward と backward の paired perturbation)で探索する 有限差分なら 2 × 10 = 20 評価必要なところを 2 評価に圧縮する。Rademacher 摂動の使用と Spall schedule の組合せで確率的に局所最小に収束することが理論的に保証されている。
 
 ==== 二層の関係(時系列構造)
 
@@ -758,7 +758,7 @@ C2 の主結果 = across-trial layer が 1 cell で $17$ / $23$ cm の gap を�
 
 各 step、観測 `y_t` と過去 estimate の差分(innovation)を計算する。
 
-$ e_t \;=\; y_t - hat(x)_(t-d) $
+$ e_t  =  y_t - hat(x)_(t-d) $
 
 これは古典的 Kalman の innovation と同じ residual である。Project 1 ではこの 83 次元 vector を 5 つの sensory field に分けて扱う。
 
@@ -779,14 +779,14 @@ $ e_t \;=\; y_t - hat(x)_(t-d) $
 
 時系列 $x_1, x_2, dots, x_t$ の「現在の平均」を、過去ほど指数的に重みを下げて推定する手法。再帰的に次で定義する。
 
-$ v(t) \;=\; (1 - alpha) dot.c v(t-1) \;+\; alpha dot.c x_t $
+$ v(t)  =  (1 - alpha) dot.c v(t-1)  +  alpha dot.c x_t $
 
 - $alpha in (0, 1)$: smoothing factor / 学習率
 - $v(0)$: 初期値(Project 1 では `v_f(0) = 1`)
 
 この再帰を展開すると、
 
-$ v(t) \;=\; alpha x_t + alpha(1-alpha) x_(t-1) + alpha(1-alpha)^2 x_(t-2) + dots $
+$ v(t)  =  alpha x_t + alpha(1-alpha) x_(t-1) + alpha(1-alpha)^2 x_(t-2) + dots $
 
 過去のデータには $(1-alpha)^k$ で指数減衰する重みがかかる。重みの大半が含まれる *effective window* は近似的に $1/alpha$ step。
 
@@ -822,7 +822,7 @@ EMA の利点は *memory が 1 スカラで済む*こと。Project 1 では 5 �
 
 各 field の 2 乗 innovation 平均を EMA で追跡する。
 
-$ v_f(t) \;=\; (1 - alpha) \, v_f(t-1) \;+\; alpha dot.c "mean"_(i in cal(I)_f) (e_(t,i)^2) $
+$ v_f(t)  =  (1 - alpha)   v_f(t-1)  +  alpha dot.c "mean"_(i in cal(I)_f) (e_(t,i)^2) $
 
 `alpha=0.05` だと時定数 ~20 step、1 episode の 3% 程度の窓。`v_f` が小さい = innovation が一貫して小さい = sensor 信頼できる。逆に大きい = sensor 信頼できない。
 
@@ -851,11 +851,11 @@ Project 1 の `tab:default_kf` で `qvel` だけが $K = 0.31 - 0.49$ と他 fie
 
 EMA は神経生物学的にも自然な実装。脳の neural integrator(leaky integrator)は連続時間で
 
-$ tau dot(v)(t) \;=\; - v(t) + "input"(t) $
+$ tau dot(v)(t)  =  - v(t) + "input"(t) $
 
 を解く回路。これを $Delta t$ で離散化すると
 
-$ v(t + Delta t) \;=\; (1 - Delta t / tau) \, v(t) + (Delta t / tau) \, "input"(t) $
+$ v(t + Delta t)  =  (1 - Delta t / tau)   v(t) + (Delta t / tau)   "input"(t) $
 
 = EMA 形式と等価。$alpha = Delta t / tau$、つまり EMA の $alpha$ は神経 leaky integrator の *time constant $tau$ の逆数* に対応する。
 
@@ -865,11 +865,11 @@ Project 1 の within-trial layer は、*innovation の二乗を入力とする�
 
 reliability に変換:
 
-$ r_f(t) \;=\; 1 / (epsilon + v_f(t)) $
+$ r_f(t)  =  1 / (epsilon + v_f(t)) $
 
 そして logistic で per-field gain $K_f(t)$ に写像:
 
-$ K_f(t) \;=\; sigma( beta_(0,f) + beta_(1,f) \, log r_f(t) ) $
+$ K_f(t)  =  sigma( beta_(0,f) + beta_(1,f)   log r_f(t) ) $
 
 #table(
   columns: (1fr, 2fr, 2.6fr),
@@ -941,7 +941,7 @@ $beta_(1,f)$ は *reliability への感応度*:
 
 具体例: $beta_1 = 0.9$ で $r_f$ が 10 倍になると $log r_f$ は約 $+2.3$ 増、$beta_1 log r_f$ は $+2.07$ 増 → $sigma$ の入力が大きく動き $K$ が大きく動く。
 
-==== 数値例: qpos field 軌道(β_0 = -1.5, β_1 = 0.9; C2 学習値)
+==== 数値例: qpos field 軌道(β_0 = -1.5, β_1 = 0.9  C2 学習値)
 
 #table(
   columns: (0.7fr, 0.7fr, 1fr, 1.5fr, 1fr),
@@ -1006,7 +1006,7 @@ within-trial layer の挙動は $beta = {beta_(0,f), beta_(1,f)} in RR^10$ に�
 
 outcome は per-episode の minimum tip-to-target distance:
 
-$ "minTip"(beta) \;=\; min_(t in [0,T]) | p_"tip"(t) - p_"tgt" | $
+$ "minTip"(beta)  =  min_(t in [0,T]) | p_"tip"(t) - p_"tgt" | $
 
 これは生体の場合「reach 後どこに着いたかの視覚 + proprioception 由来の評価」に対応する scalar。`minTip` 自体は biological claim ではなく、agent-available な outcome の *operational proxy* として使う。
 
@@ -1178,8 +1178,8 @@ $alpha_s = 0.602, gamma_s = 0.101$ という値はこれらの条件をギリギ
 
 Project 1 では `samples_per_side` $S in {10, 12}$ episode の平均を取る:
 
-$ o_n^+ = 1 / S sum_(s=1)^S "minTip"(beta_n + c_n Delta_n; "seed"_(n, s, +)) $
-$ o_n^- = 1 / S sum_(s=1)^S "minTip"(beta_n - c_n Delta_n; "seed"_(n, s, -)) $
+$ o_n^+ = 1 / S sum_(s=1)^S "minTip"(beta_n + c_n Delta_n , "seed"_(n, s, +)) $
+$ o_n^- = 1 / S sum_(s=1)^S "minTip"(beta_n - c_n Delta_n , "seed"_(n, s, -)) $
 
 ここで *paired* というのは、 $s$ ごとに同じ target index と同じ env seed を使って $beta + c Delta$ と $beta - c Delta$ の両方を評価することを意味する(common random numbers)。これで $o_n^+ - o_n^-$ の分散が大きく減る:
 
@@ -1279,7 +1279,7 @@ oracle-supervised predictor は agent-available ではない: per-condition の 
 src/myoarm_fse/        Python package
 scripts/               CLI scripts
 configs/               YAML configs
-runs/                  local outputs; large artifacts are not versioned
+runs/                  local outputs  large artifacts are not versioned
 tests/                 unit and smoke tests
 docs/                  plans, primers, this textbook
 figures/               paper figures and CSV summaries
@@ -1579,7 +1579,7 @@ C3 の structural ceiling は、natural な follow-up project として「contex
 ```text
 beta_network:
   input  = sliding window of field-wise innovation statistics
-           (mean, variance, autocorrelation; optionally (sigma, d)
+           (mean, variance, autocorrelation  optionally (sigma, d)
             as ablation-only auxiliary)
   output = beta = {beta_0_f, beta_1_f} in R^10
 ```
@@ -1636,7 +1636,7 @@ TNNLS 投稿前に CfC/LTC PoC を始めると、Project 1 の論文主張がぶ
 == 演習 1: 状態 schema を確認する
 
 ```bash
-uv run python -c "from myoarm_fse.envs.factory import make_env; from myoarm_fse.envs.extractors import extract_state; env=make_env('myoArmReachFixed-v0'); env.reset(); s=extract_state(env); print(s.flatten().shape)"
+uv run python -c "from myoarm_fse.envs.factory import make_env  from myoarm_fse.envs.extractors import extract_state  env=make_env('myoArmReachFixed-v0')  env.reset()  s=extract_state(env)  print(s.flatten().shape)"
 ```
 
 期待:
