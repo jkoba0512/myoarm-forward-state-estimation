@@ -1008,7 +1008,15 @@ outcome は per-episode の minimum tip-to-target distance:
 
 $ "minTip"(beta)  =  min_(t in [0,T]) | p_"tip"(t) - p_"tgt" | $
 
-これは生体の場合「reach 後どこに着いたかの視覚 + proprioception 由来の評価」に対応する scalar。`minTip` 自体は biological claim ではなく、agent-available な outcome の *operational proxy* として使う。
+かみ砕いて言うと、 *1 回のリーチ動作の中で「指先がターゲットに一番近づいた瞬間の距離」* を 1 つの数字にしたもの。たとえばコップに手を伸ばすとき、「いちばん近づいたとき何 cm 届かなかったか」がこの数字になる。
+
+生体に置き換えると、リーチが終わった後に *目で見たり関節の感覚で「どのくらい届いたか」を感じ取った値* に対応する。実際の脳がこの式の通り `min` を計算しているわけではないが、リーチ終了後に agent が自分で取得できる「結果」を 1 つの数字にまとめた *代表値*(operational proxy)として使う、というスタンス。
+
+#callout("ポイント", [
++ `minTip` は agent 自身が *自分の感覚で取れる* 値である(真の状態 $x_t$ や oracle ラベルではない)。
++ 1 回のリーチに対して *1 つのスカラ* が出る(複雑な軌道情報を圧縮)。
++ 「脳が literally このように計算している」とは主張しない。「リーチがどれくらいうまくいったか」の置き換えとして使うだけ。
+], color: green, fill: pale-green)
 
 closed-loop minTip は $beta$ に対して解析的勾配を取れないので(env step → EMA → sigmoid → control → non-smooth min を経由する)、SPSA(Spall 1992)で勾配 free 最適化する。
 
