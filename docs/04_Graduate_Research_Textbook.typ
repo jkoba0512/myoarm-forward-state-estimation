@@ -592,64 +592,157 @@ delay wrapper の意味を変えない。Project 1 では `observe(s_t) -> s_(t-
 
 ==== Step-wise signal flow (within-trial)
 
-```text
-[step t]
-  ① 観測到着       y_t = x_{t-d} + noise    (delay d 前の状態のノイズ版)
-  ② innovation     e_t = y_t - xhat_{t-d}
-  ③ field-wise EMA v_f(t) = (1-α) v_f(t-1) + α · mean(e_t[field f]^2)
-  ④ reliability    r_f(t) = 1 / (ε + v_f(t))
-  ⑤ logistic gain  K_f(t) = σ( β_{0,f} + β_{1,f} · log r_f(t) )
-  ⑥ correction     xhat_{t-d} ← xhat_{t-d} + K_f(t) · (y_t - xhat_{t-d})
-  ⑦ buffer update + 次の予測へ
-```
+within-trial layer は 1 episode 内で step $t = 1, 2, dots, T$ (= 600) について繰り返す手続きである。各 step での処理は次の 7 段。
 
-ここで *学習されているのは* `v_f(t)` という EMA state(= memory cell に近い動的状態)であり、重みパラメータ $beta$ は触らない。episode 開始時に $v_f(0)=1$ から始まり、その episode 中に shape される。次の episode でも `v_f` はリセットされる。
+#table(
+  columns: (0.4fr, 1.3fr, 3fr),
+  inset: 5pt,
+  [step], [操作], [式 / 説明],
+  [①], [observation 到着],
+  [$y_t = h(x_(t-d)) + eta_t$\
+   ($h$ は identity / `y_t` と `x_{t-d}` は同じ schema)],
+  [②], [innovation 計算],
+  [$e_t = y_t - hat(x)_(t-d)$\
+   (`xhat_{t-d}` は buffer に保存してある $t-d$ 時点の自分の推定)],
+  [③], [field-wise EMA 更新],
+  [$v_f(t) = (1 - alpha) v_f(t-1) + alpha dot.c 1/(|cal(I)_f|) sum_(i in cal(I)_f) e_(t,i)^2$\
+   (5 field 並列、各 field の指数 $i$ にわたって 2 乗平均)],
+  [④], [reliability 化],
+  [$r_f(t) = 1 / (epsilon + v_f(t))$\
+   ($v_f$ 小 → $r_f$ 大 → sensor 信頼できる)],
+  [⑤], [logistic gain],
+  [$K_f(t) = sigma(beta_(0,f) + beta_(1,f) log r_f(t))$\
+   ($beta$ は across-trial layer が与える固定 const)],
+  [⑥], [buffer 上の補正],
+  [$hat(x)_(t-d) <- hat(x)_(t-d) + K(t) dot.o (y_t - hat(x)_(t-d))$\
+   ($K(t) in [0,1]^83$ は $K_f(t)$ を field 内で broadcast したベクトル、$dot.o$ は要素積)],
+  [⑦], [re-roll 前進],
+  [補正済み $hat(x)_(t-d)$ を action buffer の $u_(t-d), u_(t-d+1), dots, u_(t-1)$ を順次適用して forward model で前進、現在時刻の estimate $hat(x)_t$ を得る],
+)
+
+各記号の型と意味:
+
+#table(
+  columns: (1fr, 1fr, 3fr),
+  inset: 4pt,
+  [記号], [型], [意味],
+  [$t$], [int $in [1, T]$], [step index($T = 600$、$Delta t = 0.02$ s)],
+  [$d$], [int $>= 0$], [observation delay step 数(`0` または `18`)],
+  [$x_t$], [$RR^83$], [真の状態(評価専用、observer は見ない)],
+  [$y_t$], [$RR^83$], [delay $+$ noise を経た観測ベクトル],
+  [$eta_t$], [$RR^83$], [field ごとの i.i.d. Gaussian 観測ノイズ],
+  [$hat(x)_t$], [$RR^83$], [observer の出す現在 estimate],
+  [$hat(x)_(t-d)$], [$RR^83$], [buffer 内に保存された $t-d$ 時点の estimate],
+  [$e_t$], [$RR^83$], [innovation vector(observation $-$ delayed estimate)],
+  [$cal(I)_f$], [set of int], [field $f$ が占める state vector のインデックス集合],
+  [$|cal(I)_f|$], [int], [field $f$ の次元(qpos:20 / qvel:20 / act:34 / tip_pos:3 / reach_err:3)],
+  [$v_f(t)$], [$RR_(>= 0)$], [field $f$ の EMA innovation 2 乗平均(per-field スカラ)],
+  [$alpha$], [$(0, 1)$], [EMA 学習率($0.05$、effective window $tilde 20$ step)],
+  [$v_f(0)$], [$RR_(> 0)$], [EMA 初期値($1.0$、$K_f(0) = sigma(beta_(0,f))$ になる)],
+  [$r_f(t)$], [$RR_(> 0)$], [field $f$ の reliability(per-field スカラ)],
+  [$epsilon$], [$RR_(> 0)$], [数値安定化定数($10^(-6)$)],
+  [$beta_(0,f)$], [$RR$], [field $f$ の logistic intercept($r_f=1$ 時の baseline gain $sigma(beta_(0,f))$)],
+  [$beta_(1,f)$], [$RR$], [field $f$ の logistic slope(reliability への感応度)],
+  [$sigma(z)$], [$(0,1)$], [logistic sigmoid $1/(1+e^(-z))$],
+  [$K_f(t)$], [$[0,1]$], [field $f$ の correction gain(per-field スカラ)],
+  [$K(t)$], [$[0,1]^83$], [83 次元 gain vector($K_f(t)$ を $cal(I)_f$ 上に broadcast)],
+  [$u_t$], [$RR^34$], [muscle excitation コマンド],
+  [$f_theta$], [forward model], [residual MLP $hat(x)_(t+1) = hat(x)_t + f_theta(hat(x)_t, u_t)$],
+)
+
+ここで *学習されているのは* `v_f(t)` という EMA state(memory cell に近い per-field スカラ動的状態)である。重みパラメータ $beta$ は within-trial layer の内側では固定。episode 開始時に $v_f(0) = 1.0$ から始まり、その episode 中だけ shape される。episode が終わると $v_f$ もリセットされる(動態は trial に閉じている)。
 
 ==== Iteration-wise signal flow (across-trial)
 
-```text
-[SPSA iteration n]   (= 何回かの episode のセット)
-  ① Δ_n ~ Rademacher({-1,+1})^10
-  ② "+ 側" S 個 episode で outcome を平均
-       β_n + c_n·Δ_n  →  o_plus  = mean of S minTip(s)
-  ③ "- 側" 同様
-       β_n - c_n·Δ_n  →  o_minus
-  ④ 中央差分の SPSA 勾配:
-       ĝ_n = (o_plus - o_minus) / (2 c_n) · Δ_n^{-1}
-  ⑤ β を更新:
-       β_{n+1} = β_n - a_n · ĝ_n
+across-trial layer は episode を beach iteration の単位として SPSA で $beta$ を更新する手続き。Spall (1992) の Simultaneous Perturbation Stochastic Approximation を Project 1 の設定に書き下したもの。
+
+#table(
+  columns: (0.4fr, 1.5fr, 3fr),
+  inset: 5pt,
+  [step], [操作], [式 / 説明],
+  [①], [step size 計算],
+  [$a_n = a slash (n + 1 + A)^(alpha_s)$\
+   $c_n = c slash (n + 1)^(gamma_s)$\
+   ($a=2.0$, $c=0.3$, $A=5$, $alpha_s=0.602$, $gamma_s=0.101$、Spall 推奨)],
+  [②], [Rademacher 摂動],
+  [$Delta_n in {-1, +1}^10$ を一様独立にサンプル(10 次元 $beta$ ごと $plus.minus 1$)],
+  [③], [$plus.minus$ 側で $S$ 個 episode 評価],
+  [$beta_n^+ = beta_n + c_n Delta_n$、$beta_n^- = beta_n - c_n Delta_n$\
+   各 $beta$ で $S$ 個 episode を独立 seed で走らせ、minTip 平均を取る:\
+   $o_n^+ = 1/S sum_(s=1)^S "minTip"(beta_n^+; "seed"_(n,s,+))$\
+   $o_n^- = 1/S sum_(s=1)^S "minTip"(beta_n^-; "seed"_(n,s,-))$],
+  [④], [SPSA 勾配推定],
+  [$hat(g)_n = (o_n^+ - o_n^-) / (2 c_n) dot.c Delta_n^(-1)$\
+   ($Delta_n^(-1)$ は要素単位の逆数 = Rademacher なので $Delta_n$ 自身に等しい)],
+  [⑤], [$beta$ 更新],
+  [$beta_(n+1) = beta_n - a_n hat(g)_n$\
+   ($beta$ の全 10 次元を 1 度の摂動 $Delta_n$ で同時更新)],
+)
+
+各記号の型と意味:
+
+#table(
+  columns: (1fr, 1fr, 3fr),
+  inset: 4pt,
+  [記号], [型], [意味],
+  [$n$], [int $in [0, N-1]$], [SPSA iteration index($N = 100$)],
+  [$beta_n$], [$RR^10$], [iter $n$ 時点の meta-parameter\
+   $= (beta_(0,"qpos"), beta_(0,"qvel"), beta_(0,"act"), beta_(0,"tip_pos"), beta_(0,"reach_err"),\
+   beta_(1,"qpos"), beta_(1,"qvel"), beta_(1,"act"), beta_(1,"tip_pos"), beta_(1,"reach_err"))$],
+  [$beta_0$ (初期値)], [$RR^10$], [`{β_0,f=0, β_1,f=0.5}` (default reliability prior)],
+  [$Delta_n$], [${-1, +1}^10$], [Rademacher perturbation vector(1 iter ごと独立)],
+  [$a_n, c_n$], [$RR_(> 0)$], [Spall step size / perturbation amplitude],
+  [$a, c, A$], [$RR_(> 0)$], [Spall 定数($2.0, 0.3, 5$)],
+  [$alpha_s, gamma_s$], [$(0, 1)$], [Spall 指数($0.602, 0.101$、収束のための漸近条件を満たす)],
+  [$S$], [int], [paired samples per side(single-cell:`10` / full-grid:`12`)],
+  [$beta_n^+, beta_n^-$], [$RR^10$], [perturbed evaluation 点],
+  [$o_n^+, o_n^-$], [$RR_(>= 0)$], [$plus.minus$ 側の minTip 平均(meters)],
+  [$"minTip"(beta; "seed")$], [$RR$], [1 episode の min-tip distance(scalar outcome)],
+  [$hat(g)_n$], [$RR^10$], [SPSA 勾配推定],
+  [$N$], [int], [iteration 総数($100$)],
+)
+
+ここで *学習されているのは* $beta$ そのもの。within-trial layer の動態 $v_f$ は触らない。SPSA は 10 次元の $beta$ 空間を *1 iteration あたり 2 評価*(forward と backward の paired perturbation)で探索する;有限差分なら 2 × 10 = 20 評価必要なところを 2 評価に圧縮する。Rademacher 摂動の使用と Spall schedule の組合せで確率的に局所最小に収束することが理論的に保証されている。
+
+==== 二層の関係(時系列構造)
+
+within-trial layer と across-trial layer の関係を時系列に並べると次のようになる。$beta$ は across-trial が更新し、その $beta$ を入力として within-trial が 1 episode 走る、というネスト構造。
+
+#figure(
+  table(
+    columns: (1.4fr, 1.4fr, 1.4fr, 1.4fr),
+    align: center + horizon,
+    inset: 6pt,
+    [], [*trial $n$*], [*trial $n+1$*], [*trial $n+2$*],
+    [入力 $beta$], [$beta_n$ (across-trial が直前に更新)], [$beta_(n+1)$], [$beta_(n+2)$],
+    [within-trial 動態], [$v_f(0) = 1.0 -> v_f(T)$ を $T$ step 進化], [同左], [同左],
+    [step-wise gain], [$K_f(0), K_f(1), dots, K_f(T)$ を生成], [同左], [同左],
+    [trial 出力], [$"minTip"_n$ (scalar)], [$"minTip"_(n+1)$], [$"minTip"_(n+2)$],
+  ),
+  caption: [within-trial 動態は trial ごとに $v_f(0) = 1$ にリセットされ、$beta_n$ を const として $T = 600$ step 進化する。最終的に scalar outcome $"minTip"_n$ を出力する。],
+)
+
+across-trial layer は、複数の trial outcome を集めて $beta$ を更新する:
+
+```
+trials within one SPSA iteration n:
+  draw Delta_n ~ Rademacher({-1, +1})^10
+  collect S paired episodes for beta_n + c_n Delta_n  -> o_n^+
+  collect S paired episodes for beta_n - c_n Delta_n  -> o_n^-
+  compute g_hat_n = (o_n^+ - o_n^-) / (2 c_n) * Delta_n^{-1}
+  update beta_{n+1} = beta_n - a_n * g_hat_n
 ```
 
-ここで *学習されているのは* $beta$ そのもの。within-trial 動態 $v_f$ ではなく、その動態を支配する logistic のパラメータが書き換わる。SPSA は 10 次元の $beta$ 空間を *1 iteration あたり 2 評価* で探索できる(Rademacher 摂動による単一同時摂動)ので、有限差分($2 times 10 = 20$ 評価)より次元スケーラブル。
+つまり:
 
-==== 二層の関係
+- within-trial layer は $beta$ を *入力 const* に取り、innovation history を進化させる
+- across-trial layer は trial 列の outcome 集合を入力に取り、$beta$ を *書き換える*
+- 次の trial set からは新しい $beta$ で within-trial 動態が走る
 
-```text
-                trial n            trial n+1            trial n+2
-               ┌────────┐         ┌────────┐         ┌────────┐
-β (固定) ─────►│within  │ ──────► │within  │ ──────► │within  │
-               │reliab. │         │reliab. │         │reliab. │
-               │ K_f(t) │         │ K_f(t) │         │ K_f(t) │
-               │ in     │         │ in     │         │ in     │
-               │ episode│         │ episode│         │ episode│
-               └────┬───┘         └────┬───┘         └────┬───┘
-                    │                  │                  │
-                    ▼                  ▼                  ▼
-                minTip_n           minTip_{n+1}        minTip_{n+2}
-                    │                  │                  │
-                    └──────────────────┴──────────────────┘
-                                       │
-                                       ▼
-                         ┌──────────────────────────┐
-                         │ across-trial SPSA        │
-                         │ β ← β - a · ĝ            │
-                         └──────────────────────────┘
-                                       │
-                                       ▼
-                                β (slow update)
-```
-
-within-trial は $beta$ を *入力として固定 const* に取り、innovation history を進化させて episode 中に $K_f(t)$ を動かす。across-trial は episode 終了後に $beta$ を *書き換える*、次 episode 以降の within-trial dynamics を変える。
+#callout("二層の責任分担", [
+*within-trial*: \"今この瞬間 sensor をどれくらい信じるか\" を innovation の流れから決める(短時間スケールの reliability tracking)。\
+*across-trial*: \"そもそも reliability から gain への写像をどう設計するか\" を outcome から決める(長時間スケールの meta-learning)。
+], color: green, fill: pale-green)
 
 ==== なぜ二層に分けるか
 
@@ -686,7 +779,7 @@ $ e_t \;=\; y_t - hat(x)_(t-d) $
 
 時系列 $x_1, x_2, dots, x_t$ の「現在の平均」を、過去ほど指数的に重みを下げて推定する手法。再帰的に次で定義する。
 
-$ v(t) \;=\; (1 - alpha) \cdot v(t-1) \;+\; alpha \cdot x_t $
+$ v(t) \;=\; (1 - alpha) dot.c v(t-1) \;+\; alpha dot.c x_t $
 
 - $alpha in (0, 1)$: smoothing factor / 学習率
 - $v(0)$: 初期値(Project 1 では `v_f(0) = 1`)
@@ -729,7 +822,7 @@ EMA の利点は *memory が 1 スカラで済む*こと。Project 1 では 5 �
 
 各 field の 2 乗 innovation 平均を EMA で追跡する。
 
-$ v_f(t) \;=\; (1 - alpha) \, v_f(t-1) \;+\; alpha \cdot "mean"_(i in cal(I)_f) (e_(t,i)^2) $
+$ v_f(t) \;=\; (1 - alpha) \, v_f(t-1) \;+\; alpha dot.c "mean"_(i in cal(I)_f) (e_(t,i)^2) $
 
 `alpha=0.05` だと時定数 ~20 step、1 episode の 3% 程度の窓。`v_f` が小さい = innovation が一貫して小さい = sensor 信頼できる。逆に大きい = sensor 信頼できない。
 
