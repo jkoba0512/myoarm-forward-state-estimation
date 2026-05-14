@@ -53,9 +53,11 @@ Closed-Loop Evidence from a Muscle-Driven Reaching Task}
 \begin{abstract}
 We ask whether a forward-model-based predictive state observer can
 adapt its sensory prediction-error correction gain (hereafter,
-\emph{correction gain}) from signals the agent itself has access to
---- innovation history and per-episode task outcome --- without any
-offline oracle on the optimal gain. A residual MLP forward model
+\emph{correction gain}) from signals the agent itself generates
+online --- innovation history and per-episode task outcome ---
+rather than from the per-condition oracle labels that supervised
+gain predictors require at training time
+(Appendix~\ref{app:oracle-supervised}). A residual MLP forward model
 combines with a fixed-lag predictive state observer over a 34-muscle
 MyoSuite reaching arm; the correction gain $K\!\in\![0,1]$ enters in
 an innovation-style update. We propose a two-layer adaptation rule.
@@ -134,9 +136,11 @@ estimates \cite{kalman1960,mehra1970,anderson1979optimal}; we do
 full Kalman filter (Sec.\,\ref{sec:method-kalman}). Instead we treat
 $K$ as a scalar (or field-wise vector) that controls how strongly
 sensory prediction error corrects the current state estimate, and
-ask: \emph{can the agent learn to set this gain from signals it has
-access to itself --- innovation history and per-episode task outcome
---- without an offline oracle on the optimal gain?}
+ask: \emph{can the agent learn to set this gain from signals it
+generates online --- innovation history and per-episode task
+outcome --- rather than from the per-condition $K$-sweep oracle
+labels that supervised gain predictors use at training time
+(Appendix~\ref{app:oracle-supervised})?}
 
 This question is biologically motivated. The nervous system does not
 have access to a swept oracle $K^{\star}$ across noise and delay
@@ -199,8 +203,8 @@ variance. On the training cell the smoothed training-time outcome
 falls to $\approx\!0.49$\,m (last-$20$-iter mean), within $1$\,cm
 of the $K{=}0$ baseline ($0.50$\,m on the same cell) and well below
 default reliability ($0.77$\,m). Outcome-driven
-$\beta$ adaptation alone, with no oracle access, can recover
-$K^{\star}_{\mathrm{cl}}$-equivalent performance.
+$\beta$ adaptation alone, without per-condition oracle labels, can
+recover $K^{\star}_{\mathrm{cl}}$-equivalent performance.
 
 \item \textbf{C3.} \emph{Multi-cell SPSA is bottlenecked by
 cell heterogeneity.} Repeating the same SPSA on the full $6$-cell
@@ -1169,17 +1173,19 @@ the within-trial + outcome adaptation of C2 can be measured.
 
 We have shown on a muscle-driven reaching task that a forward-model-%
 based predictive state observer can adapt its sensory prediction-%
-error correction gain from signals the agent itself has access to
+error correction gain from signals the agent itself generates online
 --- within-trial innovation reliability and across-trial reaching
-outcome --- without an offline oracle on the optimal gain. A two-%
+outcome --- rather than from the per-condition oracle labels that
+supervised gain predictors require at training time
+(Appendix~\ref{app:oracle-supervised}). A two-%
 layer adaptation rule combining a logistic
 $K_f(t)\!=\!\sigma(\beta_{0,f}\!+\!\beta_{1,f}\log r_f(t))$ over
 field-wise reliability with SPSA across-trial updates of $\beta$
 recovers about $17$ of the $23$\,cm default-reliability vs $K{=}0$
 gap on a single training cell ($0.77$\,m $\to\,0.56$\,m deployed
 against $K{=}0$ at $0.50$\,m; the smoothed training trajectory
-briefly reaches the $K{=}0$ level as a convergence signal), with
-no oracle access (C2). The same rule has two structural
+briefly reaches the $K{=}0$ level as a convergence signal), without
+per-condition oracle supervision (C2). The same rule has two structural
 limitations: when the closed-loop optimum is uniform across noise-%
 delay cells, a single global $\beta$ trained on a multi-cell mixture
 closes only $3$--$5$\,cm of the gap (C3, cell-heterogeneity ceiling);
