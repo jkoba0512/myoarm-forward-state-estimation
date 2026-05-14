@@ -83,7 +83,7 @@ mean). Field-wise $K$ specialises: qpos takes both the
 most-negative intercept,
 $\beta_{0,\mathrm{qpos}}\!\approx\!-1.5$, and the steepest slope,
 $\beta_{1,\mathrm{qpos}}\!\approx\!+0.9$. The third and fourth
-findings expose the \emph{boundary conditions} of this single-
+findings expose the \emph{boundary conditions} of this single-%
 $\beta$ recipe. \emph{Third}, multi-cell SPSA over the full grid
 improves over default reliability by only $3$--$5$\,cm at delay-$18$
 cells and not at all at delay-$0$ cells: a single global $\beta$
@@ -118,7 +118,7 @@ control, MyoSuite, muscle-driven reaching.
 % ============================================================
 
 State estimation in muscle-driven manipulation faces three coupled
-challenges: sensorimotor delay, observation noise, and signal-
+challenges: sensorimotor delay, observation noise, and signal-%
 dependent motor noise. The internal-model view of biological motor
 control answers these with a \emph{forward-model-based predictive
 state observer}: an internal forward model uses efference copy to
@@ -522,7 +522,7 @@ Sec.\,\ref{sec:results-3.1}).
 The observer uses an innovation-update form structurally familiar
 from Kalman filtering but does not propagate covariances and does
 not compute an optimal Kalman gain. The gain $K\!\in\![0,1]$ is a
-\emph{sensory prediction-error correction gain}, not a covariance-
+\emph{sensory prediction-error correction gain}, not a covariance-%
 derived Kalman gain.
 
 The observation pipeline produces $y_t = h(x_{t-d}) + \eta_t$ where
@@ -575,7 +575,7 @@ target-position channel (3) is held at a fixed gain because the
 target is known and does not have a meaningful prediction error.
 For each field $f\!\in\!\mathcal{F}\!=\!\{\mathrm{qpos},
 \mathrm{qvel}, \mathrm{act}, \mathrm{tip\_pos},
-\mathrm{reach\_err}\}$ the observer maintains an exponentially-
+\mathrm{reach\_err}\}$ the observer maintains an exponentially-%
 weighted (EMA) estimate of the per-field squared-innovation mean,
 \begin{equation}
 v_f(t) = (1-\alpha)\,v_f(t-1) + \alpha\;
@@ -722,11 +722,11 @@ u_{\mathrm{joint}} &= J^{\top}\,u_{\mathrm{tip}},\\
 u_{\mathrm{muscle}}&= \mathrm{clip}\!\bigl(\alpha\,\mathrm{ReLU}(M\,u_{\mathrm{joint}}),\,0,\,1\bigr),
 \label{eq:endpoint_fb}
 \end{align}
-with $K_{p,e}{=}30$, $K_{d,e}{=}3$, $\alpha{=}5$ and $J$ the tip-
+with $K_{p,e}{=}30$, $K_{d,e}{=}3$, $\alpha{=}5$ and $J$ the tip-%
 site positional Jacobian captured at the env's neutral pose. We use
 this as a transparent task-level state-coupled policy that lets the
-observer output flow directly to muscle commands without an IK pre-
-step; the $J^{\top}$-style projection is the classic Jacobian-
+observer output flow directly to muscle commands without an IK pre-%
+step; the $J^{\top}$-style projection is the classic Jacobian-%
 transpose method and is \emph{not} an optimal feedback controller
 (no Riccati / LQR / OFC is solved here).
 
@@ -859,7 +859,7 @@ We next add the across-trial outcome loop of
 Sec.\,\ref{sec:method-spsa}. We run SPSA for $100$ iterations on the
 single $(\sigma{=}\mathrm{none},\,d{=}18)$ cell with $S\!=\!12$
 samples per side and the Spall schedule of
-Sec.\,\ref{sec:method-spsa}. The outcome objective is the per-
+Sec.\,\ref{sec:method-spsa}. The outcome objective is the per-%
 episode $\min$-tip averaged across the $S$ paired episodes at the
 two perturbed $\beta$ points.
 
@@ -923,7 +923,7 @@ $6$-cell mean $\min$-tip.
 \includegraphics[width=\columnwidth]{F_spsa_fullgrid.pdf}
 \caption[Multi-cell SPSA on the full grid.]%
 {\textbf{Multi-cell SPSA over the focused $6$-cell grid under the
-$H{=}8$ forward model and joint-PD controller.} \emph{Top}: per-
+$H{=}8$ forward model and joint-PD controller.} \emph{Top}: per-%
 iteration $6$-cell-mean $\min$-tip outcome (mean over $S{=}12$
 paired draws). \emph{Bottom}: per-cell $\min$-tip at iteration $100$
 for $K{=}0$, default-reliability, and the multi-cell-trained $\beta$.
@@ -984,7 +984,7 @@ so the forward-model accuracy axis is matched.
 ReachRandom (variable target). Mean $\min$-tip (m) over $10$
 episodes per cell under the $H{=}8$ ReachRandom forward model and
 joint-PD controller. ``default'' is the $\beta_{0,f}{=}0$,
-$\beta_{1,f}{=}0.5$ rule; ``transferred'' is the ReachFixed full-
+$\beta_{1,f}{=}0.5$ rule; ``transferred'' is the ReachFixed full-%
 grid-SPSA-learned $\beta$ from C3 applied without retraining.}
 \label{tab:reachrandom_transfer}
 \setlength{\tabcolsep}{5pt}
@@ -1029,7 +1029,7 @@ noise and delay regime that within-trial reliability sees.
 \subsection{Comparison with offline-oracle-supervised gain}
 \label{sec:results-oracle-diagnostic}
 
-For a diagnostic upper bound we compare against an offline-oracle-
+For a diagnostic upper bound we compare against an offline-oracle-%
 supervised correction-gain predictor (Appendix~\ref{app:oracle-supervised}):
 a small MLP $g_\phi(\sigma,d,c)$ trained against the open-loop
 oracle $K^{\star}_{\mathrm{ol}}$ and, separately, against the
@@ -1038,7 +1038,7 @@ $K$-sweep. On the focused grid under $H{=}8$ the closed-loop-oracle
 variant outputs $K\!\approx\!0.02$ and matches the $K{=}0$ baseline
 within $1.5$\,cm at all delay-18 cells; the open-loop-oracle variant
 outputs $K\!\approx\!1$ and trails $K{=}0$ by $14$--$28$\,cm. The
-closed-loop-oracle variant is therefore the strongest non-agent-
+closed-loop-oracle variant is therefore the strongest non-agent-%
 available baseline available in this setting, and the C2 single-cell
 SPSA result effectively matches it on its training cell using only
 agent-available signals.
@@ -1081,7 +1081,7 @@ the structural reason for the multi-cell ceiling is geometric:
 under $H{=}8$ on ReachFixed, $K^{\star}_{\mathrm{cl}}\!=\!0$ at
 every cell, but the realised reliability $r_f(t)$ traces differ
 substantially across cells (Table~\ref{tab:default_kf}). A single
-global $\beta_{0,f}$ that pushes $K$ to nearly $0$ at the high-
+global $\beta_{0,f}$ that pushes $K$ to nearly $0$ at the high-%
 noise cell over-suppresses at the low-noise cell and vice versa.
 C3 therefore evidences that the \emph{adaptation parameterisation},
 not the outcome loop, is underpowered. The natural next model class
@@ -1127,7 +1127,7 @@ correction-gain problem. The C2 single-cell SPSA result effectively
 reaches this level using only signals the agent has access to ---
 prediction errors during the reach and the reaching outcome
 afterward. We frame the oracle-supervised predictor not as a
-biological model but as the upper bound against which agent-
+biological model but as the upper bound against which agent-%
 available adaptation should be measured. The fact that a
 $10$-parameter SPSA on per-episode outcome closes the gap on a
 single training cell suggests the upper bound is reachable by
@@ -1147,17 +1147,17 @@ variant and is left to future work. (c)~Two MyoSuite reach variants
 (ReachFixed and ReachRandom), 34-muscle arm only. Transfer to
 contact-rich tasks (grasp/place) and to other MyoSuite arms
 (Elbow/Finger reach) remains open. (d)~Forward-model family: the
-residual MLP is a coarse instantiation of the cerebellar forward-
+residual MLP is a coarse instantiation of the cerebellar forward-%
 model box; continuous-time recurrent alternatives such as
 LTC~\cite{hasani2021liquid} and CfC~\cite{hasani2022cfc} would
 provide a closer computational analogue when this observer is
-plugged into a full cortico-cerebellar loop. (e)~The behaviour-
+plugged into a full cortico-cerebellar loop. (e)~The behaviour-%
 cloned controller (Appendix~\ref{app:oracle-supervised}) washes out
 estimator differences at the demonstration scale we test;
 closed-loop state-estimation benchmarks should keep this in mind
 when choosing the downstream policy. (f)~The oracle-supervised
 predictor of Appendix~\ref{app:oracle-supervised} is intentionally
-excluded from the main adaptive observer because it requires per-
+excluded from the main adaptive observer because it requires per-%
 condition $K$-sweep labels the agent cannot generate online; it is
 reported only as a non-agent-available upper bound against which
 the within-trial + outcome adaptation of C2 can be measured.
@@ -1167,11 +1167,11 @@ the within-trial + outcome adaptation of C2 can be measured.
 \label{sec:conclusion}
 % ============================================================
 
-We have shown on a muscle-driven reaching task that a forward-model-
-based predictive state observer can adapt its sensory prediction-
+We have shown on a muscle-driven reaching task that a forward-model-%
+based predictive state observer can adapt its sensory prediction-%
 error correction gain from signals the agent itself has access to
 --- within-trial innovation reliability and across-trial reaching
-outcome --- without an offline oracle on the optimal gain. A two-
+outcome --- without an offline oracle on the optimal gain. A two-%
 layer adaptation rule combining a logistic
 $K_f(t)\!=\!\sigma(\beta_{0,f}\!+\!\beta_{1,f}\log r_f(t))$ over
 field-wise reliability with SPSA across-trial updates of $\beta$
@@ -1180,7 +1180,7 @@ gap on a single training cell ($0.77$\,m $\to\,0.56$\,m deployed
 against $K{=}0$ at $0.50$\,m; the smoothed training trajectory
 briefly reaches the $K{=}0$ level as a convergence signal), with
 no oracle access (C2). The same rule has two structural
-limitations: when the closed-loop optimum is uniform across noise-
+limitations: when the closed-loop optimum is uniform across noise-%
 delay cells, a single global $\beta$ trained on a multi-cell mixture
 closes only $3$--$5$\,cm of the gap (C3, cell-heterogeneity ceiling);
 and a $\beta$ trained on one task does not transfer to a task whose
@@ -1320,7 +1320,7 @@ $H{=}8$ multi-step    & 0.0055 & 0.0082 & 0.0114 & 0.0098 & 0.0215 & 0.0483 \\
 \label{app:oracle-supervised}
 
 The reliability-adaptive observer of Sec.\,\ref{sec:method-reliability}
-sets $K_f(t)$ from agent-available signals only. As a non-agent-
+sets $K_f(t)$ from agent-available signals only. As a non-agent-%
 available upper bound we also train an offline-oracle-supervised
 correction-gain predictor and evaluate it on the same grid; the
 single-cell SPSA result of C2 effectively matches this predictor on
@@ -1349,7 +1349,7 @@ For each of the 72 conditions in the stress grid ($3$~controllers
 $\times\,6$~noise levels $\times\,4$~delays) we sweep
 $K\!\in\!K_{\mathrm{grid}}\!=\!\{0, 0.25, 0.5, 0.75, 1.0\}$ and
 select the $K$ minimising a chosen criterion. We define an
-\emph{open-loop} oracle (estimation accuracy) and a \emph{closed-
+\emph{open-loop} oracle (estimation accuracy) and a \emph{closed-%
 loop} oracle (downstream task error):
 \begin{align}
 K^{\star}_{\mathrm{ol}}(\sigma, d, c)
@@ -1385,7 +1385,7 @@ $g_\phi^{\mathrm{ol}}$-vs-$K{=}0$ gap with no architectural change to
 the predictor.
 
 \paragraph{Transfer to the endpoint-error sensorimotor policy.}
-Repeating the closed-loop deployment with controller (iii) (endpoint-
+Repeating the closed-loop deployment with controller (iii) (endpoint-%
 error sensorimotor policy, Sec.\,\ref{sec:method}, item iii) shows
 the same qualitative pattern, in a weaker form: $K{=}0$ beats $K{=}1$
 by $-18.5$ to $-18.7$\,cm at the three $d{=}0$ cells and the two are
@@ -1480,7 +1480,7 @@ delay & none & low & medium & high & vhigh & xhigh \\
 \section{Closed-Loop $K$-Sweep on the Focused Grid}
 \label{app:cl-sweep}
 
-Table~\ref{tab:closed_K_sweep} reports the closed-loop $\min$-tip-to-
+Table~\ref{tab:closed_K_sweep} reports the closed-loop $\min$-tip-to-%
 target error per cell as a function of the (fixed) correction gain
 $K$, under the $H{=}8$ forward model and the joint-PD controller
 (10 episodes per cell). This $K$-sweep grounds two arguments in the
@@ -1782,7 +1782,7 @@ $K^{\star}_{\mathrm{cl}}$ is multimodal across cells
 ($\{0,0.25,1\}$), in contrast to the uniform $K^{\star}_{\mathrm{cl}}
 \!=\!0$ on ReachFixed. The diagnostic oracle-supervised predictor
 $g_\phi^{\mathrm{cl}}$ of Appendix~\ref{app:oracle-supervised}
-transfers cleanly to delay-$0$ cells; at delay-$18$ the sigmoid-
+transfers cleanly to delay-$0$ cells; at delay-$18$ the sigmoid-%
 output parameterisation cannot fully exploit the cell-dependent
 $K^{\star}_{\mathrm{cl}}$. The same heterogeneity drives the C4
 finding of Sec.\,\ref{sec:results-c4}: \emph{default within-trial
