@@ -889,9 +889,9 @@ $ tau dot(v)(t)  =  - v(t) + "input"(t) $
 
 を解く回路。これを $Delta t$ で離散化すると
 
-$ v(t + Delta t)  =  (1 - Delta t / tau)   v(t) + (Delta t / tau)   "input"(t) $
+$ v(t + Delta t)  =  (1 - (Delta t) / tau)   v(t) + ((Delta t) / tau)   "input"(t) $
 
-= EMA 形式と等価。$alpha = Delta t / tau$、つまり EMA の $alpha$ は神経 leaky integrator の *time constant $tau$ の逆数* に対応する。
+= EMA 形式と等価。$alpha = (Delta t) / tau$、つまり EMA の $alpha$ は神経 leaky integrator の *time constant $tau$ の逆数* に対応する。
 
 #callout("biological reading", [
 Project 1 の within-trial layer は、*innovation の二乗を入力とする生物学的 leaky integrator* と読める。小脳 / 大脳基底核の short-time-scale neural integrator が、step ごとの sensory prediction error の大きさを統合し続けている、というモデルに対応する。
@@ -1290,7 +1290,7 @@ $ EE[Delta_j slash Delta_i] = EE[Delta_j] dot.c EE[1 slash Delta_i] = 0 quad (i 
 
 10 次元の $beta = (beta_1, beta_2, dots, beta_(10))$ の勾配を有限差分で取るなら、各成分について
 
-$ partial J / partial beta_i approx (J(beta + h e_i) - J(beta - h e_i)) / (2 h) $
+$ (partial J) / (partial beta_i) approx (J(beta + h e_i) - J(beta - h e_i)) / (2 h) $
 
 を計算するので $20$ 評価必要(成分ごとに $plus.minus$ 方向で 2 評価)。これを *全 10 成分同時に摂動* して 2 評価で全部やる、というのが SPSA。
 
