@@ -2093,12 +2093,192 @@ performance on ReachRandom.
 \section{Software, Hardware, and Reproducibility}
 \label{app:repro}
 
-All experiments run on a single workstation (no GPU is required;
-the forward model and Stage A predictor are small enough that CPU
-training takes only minutes). Software stack: Python 3.11,
-PyTorch (CPU), MuJoCo 2.3, MyoSuite~2.12.2, Gymnasium 0.29.
-Reproduction scripts and exact dataset paths are recorded in the
-source repository's \texttt{docs/02\_InitialImplementationPlan.md}
-and \texttt{docs/03\_PaperOutline.md}.
+\paragraph{Software stack.} Python 3.11, PyTorch (CPU), MuJoCo
+3.x via Gymnasium 0.29, MyoSuite~2.12.2, NumPy / SciPy / pandas /
+matplotlib. Project-level dependencies are pinned in
+\texttt{pyproject.toml}.
+
+\paragraph{Hardware.} All experiments run on a single CPU
+workstation (no GPU required). Forward-model training takes
+$\sim\!30$\,min per model; closed-loop evaluation of $300$ episodes
+($5$ K-values $\times\,6$ cells $\times\,10$ episodes) takes
+$\sim\!10$\,min. Per-cell SPSA training ($100$ iterations,
+$S\!=\!10$, $20$ episodes per iteration) takes $\sim\!1$\,hour per
+cell when run alone; the $200$-iteration feature-conditioned
+$\beta$ training (Sec.\,\ref{sec:method-feature-cond}) takes
+$\sim\!3.5$\,hours.
+
+\paragraph{Reproduction commands.}
+The following commands regenerate all numerical results and figures
+reported in the paper from the released repository. They assume
+\texttt{uv} is installed; substitute \texttt{python} otherwise.
+
+\smallskip
+\noindent\emph{Forward-model training.}
+\begin{footnotesize}
+\begin{verbatim}
+# H=1, H=4, H=8 (ReachFixed expanded dataset)
+uv run python scripts/train_forward_model.py \
+  --config configs/models/mlp_expanded.yaml
+uv run python scripts/train_forward_model.py \
+  --config configs/models/mlp_expanded_multistep4.yaml
+uv run python scripts/train_forward_model.py \
+  --config configs/models/mlp_expanded_multistep8.yaml
+
+# Undertrained H=8 (RQ2 degraded condition)
+uv run python scripts/train_forward_model.py \
+  --config configs/models/mlp_expanded_multistep8_undertrained.yaml
+\end{verbatim}
+\end{footnotesize}
+
+\noindent\emph{Closed-loop K-sweep across forward-model conditions
+(RQ2, Figs.\,\ref{fig:F_reliability_default},
+\ref{fig:F_fm_quality_shift}).}
+\begin{footnotesize}
+\begin{verbatim}
+uv run python scripts/evaluate_closed_loop.py \
+  --config configs/closed_loop/k_sweep_H1.yaml
+uv run python scripts/evaluate_closed_loop.py \
+  --config configs/closed_loop/k_sweep_H4.yaml
+uv run python scripts/evaluate_closed_loop.py \
+  --config configs/closed_loop/reliability_adaptive_v2_fullgrid.yaml
+uv run python scripts/evaluate_closed_loop.py \
+  --config configs/closed_loop/k_sweep_undertrained_H8.yaml
+\end{verbatim}
+\end{footnotesize}
+
+\noindent\emph{Forward-model diagnostics (Step 1 of RQ1).}
+\begin{footnotesize}
+\begin{verbatim}
+uv run python scripts/compute_fm_diagnostics.py \
+  --forward-models 2026-05-11T11-47-34Z \
+                   2026-05-11T09-53-07Z \
+                   2026-05-10T07-25-23Z \
+                   2026-05-15T19-53-57Z \
+  --n-episodes 3 \
+  --output runs/diagnostics/geometry/fm_diag.csv
+\end{verbatim}
+\end{footnotesize}
+
+\noindent\emph{RQ1 regression
+(Sec.\,\ref{sec:results-c4-rq1}, Fig.\,\ref{fig:F_geometry_regression}).}
+\begin{footnotesize}
+\begin{verbatim}
+uv run python scripts/rq1_geometry_regression.py
+uv run python scripts/plot_rq1_geometry.py
+\end{verbatim}
+\end{footnotesize}
+
+\noindent\emph{RQ2 visualisation
+(Sec.\,\ref{sec:results-c4-rq2}, Fig.\,\ref{fig:F_fm_quality_shift}).}
+\begin{footnotesize}
+\begin{verbatim}
+uv run python scripts/plot_rq2_fm_quality.py \
+  --undertrained-h8-model 2026-05-15T19-53-57Z
+\end{verbatim}
+\end{footnotesize}
+
+\noindent\emph{Per-cell $\beta$ diagnostic
+(Sec.\,\ref{sec:results-c4-parameterization},
+Table~\ref{tab:per_cell_beta_diagnostic}).}
+\begin{footnotesize}
+\begin{verbatim}
+# 6 independent SPSA runs (~1 hour each at full CPU)
+uv run python scripts/run_per_cell_spsa.py \
+  --max-iter 100 --samples-per-side 10 \
+  --a 2.0 --c 0.3 --A 5.0
+
+# Fresh deployment eval (10 fresh episodes per cell)
+uv run python scripts/eval_per_cell_beta.py
+\end{verbatim}
+\end{footnotesize}
+
+\noindent\emph{Feature-conditioned $\beta$ adapter
+(Sec.\,\ref{sec:method-feature-cond},
+Sec.\,\ref{sec:results-c4-feature-cond},
+Fig.\,\ref{fig:F_adapt_compare}).}
+\begin{footnotesize}
+\begin{verbatim}
+# Pre-compute per-cell z-scored log innovation features
+uv run python scripts/compute_per_cell_features.py \
+  --n-warmup-episodes 5
+
+# SPSA training (200 iter, S=12, ~3.5h walltime)
+uv run python scripts/train_feature_conditioned_beta.py \
+  --max-iter 200 --samples-per-cell 2 \
+  --a 0.5 --c 0.3 --A 10 \
+  --base global_spsa
+
+# Fresh deployment eval (10 episodes per cell)
+uv run python scripts/eval_feature_conditioned_beta.py
+
+# F_adapt_compare figure (7-estimator comparison)
+uv run python scripts/plot_rq3_adapt_compare.py
+\end{verbatim}
+\end{footnotesize}
+
+\noindent\emph{Other figures (existing reframe figures).}
+\begin{footnotesize}
+\begin{verbatim}
+uv run python scripts/make_reframe_figures.py
+# generates F_reliability_default, F_spsa_single, F_spsa_fullgrid
+\end{verbatim}
+\end{footnotesize}
+
+\paragraph{Repository layout.}
+\begin{footnotesize}
+\begin{verbatim}
+src/myoarm_fse/
+  envs/               MyoSuite wrappers, observation pipelines
+  models/             ForwardMLP, training loops
+  estimators/         FixedGainKalman, ReliabilityAdaptive, Learned
+  controllers/        JointSpacePD, EndpointError, BC
+  evaluation/         closed_loop.py (single episode rollout)
+scripts/              all training / evaluation / plotting entries
+configs/
+  models/             forward-model training configs
+  closed_loop/        closed-loop eval configs
+  train/              SPSA / per-cell SPSA / feature-cond configs
+runs/                 local outputs; large artifacts not versioned
+figures/              committed PDF/PNG of paper figures
+paper/                LaTeX source + bibliography
+\end{verbatim}
+\end{footnotesize}
+
+\paragraph{Tests.}
+Unit tests cover the per-step observer math, fixed-lag delay
+handling, and the deterministic build of every estimator. A
+MyoSuite-marked smoke suite verifies that one closed-loop episode
+runs end-to-end with each controller / estimator combination. Both
+suites pass on \texttt{main}.
+\begin{footnotesize}
+\begin{verbatim}
+uv run pytest             # default fast tests
+uv run pytest -m myosuite # closed-loop integration smoke
+\end{verbatim}
+\end{footnotesize}
+
+\paragraph{Run artifacts.}
+The repository ships configs that, when run, write reproducible
+output directories under \texttt{runs/}. Each closed-loop or
+training run records its resolved config and a Git commit hash in
+\texttt{config.json}, so re-running with the same seed and commit
+exactly reproduces the headline numbers in this paper. Run
+identifiers used in the main results:
+
+\begin{footnotesize}
+\begin{itemize}
+\item Forward models: \texttt{2026-05-10T07-25-23Z} ($H{=}1$),
+  \texttt{2026-05-11T09-53-07Z} ($H{=}4$),
+  \texttt{2026-05-11T11-47-34Z} ($H{=}8$),
+  \texttt{2026-05-15T19-53-57Z} ($H{=}8$ undertrained)
+\item Global SPSA $\beta$ (Sec.\,\ref{sec:method-spsa}):
+  \texttt{2026-05-13T23-40-35Z}
+\item Per-cell $\beta$ diagnostic (Sec.\,\ref{sec:results-c4-parameterization}):
+  \texttt{2026-05-15T12-59-01Z}
+\item Feature-conditioned $\beta$ (Sec.\,\ref{sec:method-feature-cond}):
+  \texttt{2026-05-17T01-20-04Z}
+\end{itemize}
+\end{footnotesize}
 
 \end{document}
