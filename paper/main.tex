@@ -52,55 +52,35 @@ Closed-Loop Evidence from a Muscle-Driven Reaching Task}
 \maketitle
 
 \begin{abstract}
-We ask whether a forward-model-based predictive state observer can
-adapt its sensory prediction-error correction gain (hereafter,
-\emph{correction gain}) from signals the agent itself generates
-online --- innovation history and per-episode task outcome ---
-rather than from the per-condition oracle labels that supervised
-gain predictors require at training time
-(Appendix~\ref{app:oracle-supervised}). A residual MLP forward model
-combines with a fixed-lag predictive state observer over a 34-muscle
-MyoSuite reaching arm; the correction gain $K\!\in\![0,1]$ enters in
-an innovation-style update. We propose a two-layer adaptation rule.
-\emph{Within-trial}, a per-channel exponentially-weighted variance
-of squared innovation gives a reliability estimate $r_f(t)$, and a
-logistic $K_f(t)\!=\!\sigma(\beta_{0,f}\!+\!\beta_{1,f}\log r_f(t))$
-maps it to a field-wise correction gain on the qpos, qvel, act,
-tip\_pos, and reach\_err sensory channels.
-\emph{Across-trial}, Simultaneous Perturbation Stochastic
-Approximation (SPSA) updates the meta-parameters $\beta$ from the
-per-episode reaching outcome. Plugging this observer into a
-joint-space PD controller produces a mechanistic decomposition of
-the closed-loop correction-gain geometry. \emph{First}, default
-reliability adaptation alone trails the $K{=}0$ baseline by
-$23$--$29$\,cm under a multi-step ($H{=}8$) forward model whose
-closed-loop optimum is $K{=}0$: innovation history is not
-task-aware. \emph{Second}, on a single training cell SPSA recovers
-about $17$ of the $23$\,cm gap from the per-episode outcome alone.
-\emph{Third}, a sequence of analyses identifies two distinct ceilings
-that limit reliability-adaptive observers in this setting. A
-regression of per-cell $\Delta\mathrm{outcome}(K{=}1, K{=}0)$
-against forward-model error/bias and reliability variance
-($R^2 \!=\! 0.95$ vs.\ $0.17$ from reliability alone) shows that
-the geometry of the closed-loop optimum is dominated by
-forward-model quality, not by sensory reliability. A single global
-$\beta$ aggregating cells with different geometries therefore
-saturates (\emph{context aggregation ceiling}); but the
-reliability-to-gain logistic itself cannot represent the sharp
-$K{=}0$ regime that delay-$0$ cells require, so even per-cell
-SPSA fails on three of six cells (\emph{parameterisation ceiling}).
-\emph{Fourth}, a $30$-parameter diagonal field-wise linear adapter
-that maps z-scored log innovation statistics to $\beta$ closes the
-context aggregation ceiling: deployed $6$-cell-mean $\min$-tip
-falls from $0.74$\,m (global SPSA) to $0.65$\,m, and at delay-$18$
-cells it reaches $0.51$\,m, within $1.7$\,cm of $K{=}0$. The
-parameterisation ceiling persists at delay-$0$ as predicted. The
-context aggregation ceiling can thus be partially overcome from
-agent-available innovation statistics alone, while the
-parameterisation ceiling is a property of the reliability-to-gain
-map. Offline-oracle-supervised gain predictors
-(Appendix~\ref{app:oracle-supervised}) serve as an upper-bound
-diagnostic against which agent-available adaptation can be measured.
+We ask whether a forward-model-based predictive state observer ---
+an internal forward model in the cybernetic sense --- can adapt
+its sensory prediction-error correction gain from signals the
+agent itself generates online (innovation history and per-episode
+reaching outcome), rather than from per-condition oracle labels
+(Appendix~\ref{app:oracle-supervised}). On a 34-muscle MyoSuite
+reaching arm, a predictive observer over a residual forward model
+uses a within-trial reliability-to-gain logistic and an
+across-trial outcome-driven update of its meta-parameters $\beta$
+via SPSA \cite{spall1992spsa}. Plugging this observer into a
+joint-space PD controller yields a mechanistic decomposition of
+the closed-loop correction-gain geometry. The geometry is
+dominated by forward-model error and bias, not by sensory
+reliability: a regression of per-cell
+$\Delta\mathrm{outcome}(K{=}1, K{=}0)$ across four forward-model
+qualities reaches $R^2 \!=\! 0.95$, against $R^2 \!=\! 0.17$ from
+reliability variance alone. A $30$-parameter diagonal field-wise
+linear adapter that maps z-scored log innovation statistics to
+$\beta$ then reduces the $6$-cell-mean $\min$-tip reaching error
+from $0.74$\,m (global SPSA) to $0.65$\,m, with delay-$18$ cells
+reaching $0.51$\,m, within $1.7$\,cm of the $K{=}0$ baseline. The
+remaining failure at delay-$0$ cells is unaffected by adding
+context input. Together, the results identify two distinct
+ceilings: a \emph{context aggregation ceiling} that
+agent-available innovation statistics can substantially close,
+and a \emph{parameterisation ceiling} of the reliability-to-gain
+logistic that they cannot. Offline-oracle-supervised gain
+predictors (Appendix~\ref{app:oracle-supervised}) serve as an
+upper-bound diagnostic.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -152,7 +132,11 @@ Perturbation Stochastic Approximation (SPSA) \cite{spall1992spsa}
 updates the meta-parameters $\beta\!=\!\{\beta_{0,f},\beta_{1,f}\}$
 from the per-episode reaching outcome. Neither layer accesses the
 optimal $K$, the true state, or a swept oracle; both use only
-signals the agent generates during reaching.
+signals the agent generates during reaching. The resulting object
+is a computational internal-model loop in the cybernetic sense:
+efference-copy-based prediction is corrected by delayed sensory
+prediction error, while trial-level outcome reshapes the
+reliability-to-gain rule.
 
 We instantiate this observer on a 34-muscle MyoSuite reaching arm
 \cite{caggiano2022myosuite} running in the MuJoCo simulator
