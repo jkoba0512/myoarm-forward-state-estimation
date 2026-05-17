@@ -674,6 +674,79 @@ $K^{\star}_{\mathrm{cl}}(\sigma, d, c)\!=\!\arg\min_{K}\mathbb{E}[
 access to a swept $K$-grid the biological agent does not have; we
 include it strictly as the strongest non-agent-available baseline.
 
+\subsection{Feature-Conditioned $\beta$ Adapter}
+\label{sec:method-feature-cond}
+
+\S\ref{sec:method-spsa} optimises a single $\beta\!\in\!\mathbb{R}^{10}$
+across all cells. A natural relaxation is to let $\beta$ depend on
+\emph{context} that the agent can read off its own innovation history.
+We use the most compact such rule: a diagonal field-wise linear
+adapter on top of a fixed base $\beta^{\mathrm{base}}$.
+
+\paragraph{Architecture.}
+For each sensory field $f \!\in\! \mathcal{F}$, the adapter outputs a
+correction $(\Delta\beta_{0,f}, \Delta\beta_{1,f})$ from two
+per-field features:
+\begin{equation}
+\begin{aligned}
+\Delta\beta_{0,f}
+  &= w^{(0)}_{\mathrm{mean},f} \, z_{\mathrm{mean},f}
+   + w^{(0)}_{\mathrm{var},f}  \, z_{\mathrm{var},f}
+   + b^{(0)}_f, \\
+\Delta\beta_{1,f}
+  &= w^{(1)}_{\mathrm{mean},f} \, z_{\mathrm{mean},f}
+   + w^{(1)}_{\mathrm{var},f}  \, z_{\mathrm{var},f}
+   + b^{(1)}_f,
+\end{aligned}
+\label{eq:feature_cond_adapter}
+\end{equation}
+giving five fields $\times$ two outputs $\times$ three weights
+$=30$ parameters total. The effective per-field $\beta$ used by the
+within-trial layer is
+\begin{equation}
+\beta_{0,f}^{\mathrm{eff}} = \beta_{0,f}^{\mathrm{base}}
+                            + \Delta\beta_{0,f},
+\qquad
+\beta_{1,f}^{\mathrm{eff}} = \beta_{1,f}^{\mathrm{base}}
+                            + \Delta\beta_{1,f},
+\label{eq:feature_cond_beta}
+\end{equation}
+fixed for the duration of one episode. Setting all 30 adapter
+weights to zero recovers $\beta^{\mathrm{base}}$ exactly, so the
+adapter is an additive correction. Throughout the main results we
+take $\beta^{\mathrm{base}}$ to be the global SPSA $\beta$ trained
+on the focused grid (Sec.\,\ref{sec:method-spsa}).
+
+\paragraph{Input features and normalisation.}
+The two per-field features $z_{\mathrm{mean},f}$ and
+$z_{\mathrm{var},f}$ are agent-available innovation statistics:
+mean absolute innovation and mean squared innovation over the
+second half of a brief default-reliability warm-up run on the cell.
+Each statistic is then log-transformed and z-scored \emph{across the
+focused-grid cells} using normalisation constants estimated once
+from the warm-up rollouts and then frozen:
+\begin{equation}
+z_{\bullet,f}
+  = \frac{\log(1 + s_{\bullet,f}) - \mu_{\bullet,f}^{\mathrm{norm}}}
+         {\sigma_{\bullet,f}^{\mathrm{norm}}},
+\end{equation}
+where $s_{\bullet,f}$ is the raw statistic and
+$(\mu^{\mathrm{norm}}, \sigma^{\mathrm{norm}})$ are calibration
+constants. This calibration is analogous to sensory scale
+calibration in a biological agent: it adjusts the units of
+innovation features into a common scale, but does not encode the
+optimal correction gain or any oracle label.
+
+\paragraph{Training.}
+The 30 adapter weights are trained by SPSA on the same per-episode
+$\min$-tip outcome used in Sec.\,\ref{sec:method-spsa}, with
+$200$ iterations, $S\!=\!12$ paired episodes per iteration (two
+samples per cell, six cells), perturbation amplitude $c\!=\!0.3$
+and learning rate $a\!=\!0.5$, both annealed by the Spall schedule.
+The cell features computed in the calibration step are reused at
+each iteration without modification --- the adapter learns a single
+context-to-$\beta$ map, not a per-cell $\beta$.
+
 \subsection{Controllers}
 Three controllers are evaluated as closed-loop wrappers around the
 estimator.
@@ -740,7 +813,7 @@ IK demonstrations \cite{pomerleau1988alvinn} (no
 DAgger~\cite{ross2011dagger}). We retain this controller only as a
 diagnostic in Appendix~\ref{app:oracle-supervised} to test whether
 a learned downstream policy consumes the observer signal; the main
-results of Sec.\,\ref{sec:results-c1}--\ref{sec:results-c4} use
+results of Sec.\,\ref{sec:results-c1}--\ref{sec:results-c5} use
 joint-PD (ii) so the observer output flows to muscle commands
 through an explicit feedback law.
 
@@ -963,16 +1036,222 @@ is therefore not a failure of outcome adaptation itself --- the
 single-cell run of C2 converged --- but evidence that the
 parameterisation, a single global $\beta\!\in\!\mathbb{R}^{10}$,
 is underpowered when the reliability geometry varies across cells.
-A natural next model is a context-conditioned $\beta$ network that
-maps a short sliding window of field-wise innovation statistics
-(mean, variance, autocorrelation) to the ten $\beta$ parameters,
-optionally with known $(\sigma, d)$ context as an ablation-only
-auxiliary input; the agent-available primary input is the
-innovation window, since a biological agent does not directly
-observe the noise level or sensorimotor delay.
+We call this the \emph{context aggregation ceiling}.
 
-\subsection{Task transfer reveals task-dependence (C4)}
-\label{sec:results-c4}
+\subsection{What determines the closed-loop correction-gain geometry?}
+\label{sec:results-c4-geometry}
+
+C3 leaves a sharper question: \emph{why does the correction-gain
+geometry differ across cells in the first place?} Three additional
+analyses decompose the cell heterogeneity into the underlying
+factors, and reveal a second, qualitatively different ceiling.
+
+\subsubsection{Forward-model error and bias dominate $\Delta$outcome}
+\label{sec:results-c4-rq1}
+
+Let $\Delta\mathrm{outcome}(\sigma, d) \!=\!
+\mathbb{E}[\mathrm{minTip} \mid K\!=\!1] -
+\mathbb{E}[\mathrm{minTip} \mid K\!=\!0]$ measure, per cell, how much
+worse pure observation-correction does than pure forward-prediction.
+A positive value means $K{=}0$ is better; a negative value means
+$K{=}1$ wins. We regress this signed gap against a small set of
+per-(model, cell) predictors --- sensory reliability variance,
+delay, $h{=}10$ forward-model rollout MSE, forward-model bias
+norm, and task-space signed bias --- on the focused grid under four
+forward-model conditions ($H\!\in\!\{1,4,8\}$ and undertrained
+$H\!=\!8$, totalling $24$ rows).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{F_geometry_regression.pdf}
+\caption[$\Delta$outcome is dominated by forward-model error, not
+sensory reliability.]%
+{\textbf{Per-(model, cell) $\Delta\mathrm{outcome}(K{=}1, K{=}0)$
+plotted against sensory reliability variance (left, $R^2{=}0.22$)
+and forward-model $h{=}10$ rollout MSE (right, $R^2{=}0.79$).}
+Four forward-model conditions are distinguishable by colour. The
+right panel shows the clear negative correlation underpinning the
+joint regression $R^2{=}0.95$: as forward-model error grows, the
+$K{=}0$ advantage shrinks and observation-correction catches up.}
+\label{fig:F_geometry_regression}
+\end{figure}
+
+The result is decisive. Reliability variance and delay alone give
+$R^2 \!=\! 0.17$. Adding the forward-model error/bias features
+pushes $R^2$ to $0.95$, with reliability dropping to essentially
+zero standardised coefficient. The dominant predictor is
+$\mathrm{fm\_h10\_mse}$ (standardised coefficient $+0.13$,
+Fig.\,\ref{fig:F_geometry_regression} right). The interpretation is
+mechanistic:
+
+\begin{quote}
+\emph{When the forward model is accurate, observation correction
+adds variance without adding information, and $K{=}0$ dominates.
+As the forward model degrades, the value of sensor-based
+correction rises and $K{=}1$ catches up.}
+\end{quote}
+
+Reliability variance, the quantity the within-trial layer can
+measure, therefore explains only a small fraction of where the
+$K^{\star}_{\mathrm{cl}}$-optimum lives; the dominant geometry is
+shaped by forward-model quality, which the agent cannot observe
+directly.
+
+\subsubsection{$K^{\star}_{\mathrm{cl}}$ shifts with forward-model quality}
+\label{sec:results-c4-rq2}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{F_fm_quality_shift.pdf}
+\caption[Closed-loop $K$-sweep across four forward-model quality
+conditions.]%
+{\textbf{Per-cell $\min$-tip vs.\ $K\!\in\!\{0,0.25,0.5,0.75,1\}$
+for four forward-model conditions on the focused $6$-cell grid (mean
+over $10$ episodes per (model, cell, $K$)).} $H{=}8$ (best) puts
+$K^{\star}_{\mathrm{cl}}{=}0$ at every cell. $H{=}1$ (worst) leaves
+$K{=}0$ and $K{=}1$ competitive at the three delay-$18$ cells; the
+$K^{\star}_{\mathrm{cl}}$ regime begins to shift. Undertrained
+$H{=}8$ and $H{=}4$ are intermediate.}
+\label{fig:F_fm_quality_shift}
+\end{figure}
+
+Direct confirmation comes from sweeping forward-model quality and
+re-running the $K$-grid (Fig.\,\ref{fig:F_fm_quality_shift}). Under
+the best forward model ($H{=}8$ full), $K^{\star}_{\mathrm{cl}}{=}0$
+at every focused-grid cell with a sharp jump from $0.49$\,m to
+$0.77$\,m between $K{=}0$ and $K{=}0.25$. Under the worst forward
+model ($H{=}1$), the gap between $K{=}0$ and $K{=}1$ collapses to
+$<\!2$\,cm at the three delay-$18$ cells; observation-correction is
+no longer penalised because the rollout it would replace is
+already unreliable. The trajectory of $K^{\star}_{\mathrm{cl}}$
+across forward-model conditions therefore matches the regression's
+quantitative prediction.
+
+\subsubsection{Parameterisation ceiling: per-cell $\beta$ fails at $d{=}0$}
+\label{sec:results-c4-parameterization}
+
+The context aggregation ceiling from \S\ref{sec:results-c3} could
+be ascribed to multi-cell averaging. To test whether a
+$\beta\!\in\!\mathbb{R}^{10}$ rule \emph{can} reach $K{=}0$ if it
+sees only one cell, we ran six \emph{independent} per-cell SPSA
+training runs --- one cell each, $100$ iterations, $S{=}10$ paired,
+all other hyperparameters as in C2. Each $\beta_c$ is then
+evaluated on $10$ fresh episodes on its training cell.
+
+\begin{table}[!htbp]
+\centering
+\caption{Per-cell SPSA diagnostic. Each $\beta_c$ is trained on cell
+$c$ in isolation for $100$ iterations and deployed on $10$ fresh
+episodes on the same cell. Last-$20$-iter mean is the smoothed
+training-time outcome; \emph{deployed} is the fresh-eval mean.
+$K{=}0$ baseline per cell is $\approx\!0.50$\,m.}
+\label{tab:per_cell_beta_diagnostic}
+\setlength{\tabcolsep}{5pt}
+\footnotesize
+\begin{tabular}{@{}ll cc c@{}}
+\toprule
+noise & delay & training (last-$20$) & deployed & direction \\
+\midrule
+none  & 0  & 0.748 & 0.784 & worsened \\
+high  & 0  & 0.749 & 0.782 & worsened \\
+xhigh & 0  & 0.739 & 0.769 & worsened \\
+none  & 18 & 0.489 & 0.561 & improved \\
+high  & 18 & 0.559 & 0.697 & improved \\
+xhigh & 18 & 0.543 & 0.670 & improved \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+A clean dichotomy emerges (Table~\ref{tab:per_cell_beta_diagnostic}).
+At the three delay-$18$ cells, per-cell SPSA reduces the smoothed
+training outcome from $\approx\!0.61$\,m to $0.49$--$0.56$\,m,
+matching the $K{=}0$ baseline within $1$--$7$\,cm. At the three
+delay-$0$ cells, per-cell SPSA \emph{worsens} the outcome from
+$\approx\!0.65$\,m to $0.74$--$0.75$\,m: even when given a single
+cell as its entire optimisation target, the logistic rule cannot
+push $K_f \to 0$. This is the second ceiling we report:
+
+\begin{quote}
+\emph{Parameterisation ceiling.} The reliability-to-gain logistic
+$K_f \!=\! \sigma(\beta_{0,f} + \beta_{1,f} \log r_f)$ cannot
+represent the sharp $K\!=\!0$ regime that the $H{=}8$ forward model
+demands at delay-$0$ cells, because $K_f \!\to\! 0$ requires
+$\beta_{0,f} \!\to\! -\infty$, a limit SPSA does not reach from
+default initialisation in $100$ iterations.
+\end{quote}
+
+C3's multi-cell ceiling is therefore one of two distinct limits,
+not the only one. The next subsection asks whether the
+\emph{context aggregation ceiling} can be overcome from
+agent-available signals; the parameterisation ceiling is a
+property of the parameterisation itself, addressed in
+Section\,\ref{sec:discussion}.
+
+\subsection{Context-conditioned $\beta$ breaks the aggregation ceiling (C4)}
+\label{sec:results-c4-feature-cond}
+
+If the multi-cell ceiling is information-poor rather than
+optimisation-poor, then providing the agent with cell-specific
+context as input should narrow the gap to per-cell $\beta$. We
+test this with a deliberately small adapter: a $30$-parameter
+diagonal field-wise linear map from per-cell innovation
+statistics to $\Delta\beta$, applied on top of the global SPSA
+$\beta$ as a base (Sec.\,\ref{sec:method-feature-cond}). The
+input to the adapter is the only context the agent receives,
+and is restricted to z-scored log innovation mean and variance
+estimated from a brief default-reliability warm-up
+(Sec.\,\ref{sec:method-feature-cond}).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{F_adapt_compare.pdf}
+\caption[Closed-loop $\min$-tip across adaptation rules and
+ceilings.]%
+{\textbf{Closed-loop $\min$-tip across seven estimators on the
+focused $6$-cell grid, faceted by delay.} Top row (delay-$0$): all
+six non-$K{=}0$ rules cluster at $0.74$--$0.78$\,m; the
+parameterisation ceiling is shared. Bottom row (delay-$18$):
+feature-conditioned $\beta$ deployed (cyan) reaches $0.51$\,m
+across cells --- within $1.7$\,cm of the $K{=}0$ baseline ---
+beating both global SPSA $\beta$ ($0.69$\,m) and per-cell $\beta$
+deployed ($0.64$\,m). The context aggregation ceiling is broken.}
+\label{fig:F_adapt_compare}
+\end{figure}
+
+After $200$ SPSA iterations the trained adapter's deployed-eval
+$6$-cell mean $\min$-tip is $0.647$\,m, a $9.2$\,cm improvement over
+the global SPSA $\beta$ baseline of $0.739$\,m
+(Fig.\,\ref{fig:F_adapt_compare}). The improvement is concentrated
+in the achievable regime:
+
+\begin{itemize}
+\item \emph{delay-$18$ cells}: feature-conditioned $\beta$ reaches
+$0.514$\,m on average, within $1.7$\,cm of the $K{=}0$ baseline
+($0.497$\,m). It \emph{exceeds} the per-cell $\beta$ deployed
+mean of $0.643$\,m at every cell, while using a single shared
+$30$-parameter rule rather than six independently optimised
+$10$-parameter $\beta$'s.
+
+\item \emph{delay-$0$ cells}: feature-conditioned $\beta$ stays at
+$0.781$\,m, statistically indistinguishable from default
+reliability ($0.776$\,m), per-cell $\beta$ deployed ($0.778$\,m),
+and global SPSA $\beta$ ($0.778$\,m). The parameterisation ceiling
+remains.
+\end{itemize}
+
+The take-away is precise: \emph{the $9.2$\,cm gain over global
+$\beta$ comes entirely from breaking the context aggregation
+ceiling on delay-$18$ cells; the parameterisation ceiling on
+delay-$0$ cells is unaffected, as predicted}. A compact linear
+context-conditioned rule, driven only by agent-available
+innovation statistics, suffices to close the context aggregation
+gap without needing a non-agent-available oracle or per-cell
+optimisation. The persistent delay-$0$ gap is a property of the
+logistic reliability-to-gain map, not of the context information
+available to the agent.
+
+\subsection{Task transfer reveals task-dependence (C5)}
+\label{sec:results-c5}
 
 The previous results all use ReachFixed, where the same target
 location is reused across episodes. We test the same observer on
@@ -1791,7 +2070,7 @@ $g_\phi^{\mathrm{cl}}$ of Appendix~\ref{app:oracle-supervised}
 transfers cleanly to delay-$0$ cells; at delay-$18$ the sigmoid-%
 output parameterisation cannot fully exploit the cell-dependent
 $K^{\star}_{\mathrm{cl}}$. The same heterogeneity drives the C4
-finding of Sec.\,\ref{sec:results-c4}: \emph{default within-trial
+finding of Sec.\,\ref{sec:results-c5}: \emph{default within-trial
 reliability} (no SPSA training of $\beta$) beats $K{=}0$ at
 delay-$18$ cells on ReachRandom because its $K_f\!\approx\!0.6$--
 $0.7$ accidentally lands near the per-cell oracle values, while the
