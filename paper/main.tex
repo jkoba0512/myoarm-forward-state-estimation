@@ -3,69 +3,62 @@
 % Build:
 %   cd paper && pdflatex main && bibtex main && pdflatex main && pdflatex main
 %
-% Currently typeset using IEEEtran.cls (journal mode) for compactness;
-% Springer/Biological Cybernetics accepts any readable LaTeX format for
-% initial review. If invited to revise, switch to sn-jnl.cls (Springer
-% Nature article template) and adjust bibliography style accordingly.
+% Typeset using the Springer Nature article template (sn-jnl.cls)
+% with the [sn-mathphys, Numbered, iicol] options as recommended by
+% the Biological Cybernetics submission guidelines.
+% Bibliography style is sn-mathphys (Math and Physical Sciences,
+% Numbered variant); refs.bib is unchanged from the previous
+% IEEEtran-formatted draft (see main.tex.ieeetran-backup).
 
-\documentclass[journal]{IEEEtran}
+\documentclass[sn-mathphys,Numbered,iicol]{sn-jnl}
 
-\usepackage{cite}
 \usepackage{amsmath,amssymb,amsfonts}
-\usepackage{algorithmic}
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{multirow}
 \usepackage{textcomp}
+\usepackage{manyfoot}
 \usepackage{xcolor}
 \usepackage{url}
 \usepackage{tikz}
 \usetikzlibrary{positioning,arrows.meta,calc,fit,backgrounds}
+\usepackage[title]{appendix}
 \usepackage{hyperref}
 \hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
 
 \graphicspath{{../figures/}}
 
-% (No project-specific macros are needed in the final draft; the \K
-% shortcut and a few unused helpers were removed during the notation
-% review. K, K*_ol, K*_cl, H, h are inlined as plain math.)
+\raggedbottom
 
 \begin{document}
 
-\title{How a Predictive State Observer Can Self-Adapt Its Sensory
-Prediction-Error Correction Gain\\
-Closed-Loop Evidence from a Muscle-Driven Reaching Task}
+\title[Self-Adapting a Predictive Observer's Correction Gain]{How
+a Predictive State Observer Can Self-Adapt Its Sensory
+Prediction-Error Correction Gain: Closed-Loop Evidence from a
+Muscle-Driven Reaching Task}
 
-\author{Jun~Kobayashi%
-    \thanks{Manuscript received [date]; revised [date]. J.~Kobayashi
-    is with the Department of Intelligent and Control Systems,
-    Graduate School of Computer Science and Systems Engineering,
-    Kyushu Institute of Technology, 680-4 Kawazu, Iizuka, Fukuoka
-    820-8502, Japan (e-mail: kobayashi.jun184@m.kyutech.ac.jp). The
-    author received no specific funding for this work. Code and
-    configs are released at [repository URL TBD].}%
-}
+\author*[1]{\fnm{Jun} \sur{Kobayashi}}\email{kobayashi.jun184@m.kyutech.ac.jp}
 
-\markboth{Manuscript submitted to Biological Cybernetics}%
-{J.~Kobayashi: How a Predictive State Observer Can Self-Adapt Its Correction Gain}
+\affil*[1]{\orgdiv{Department of Intelligent and Control Systems,
+Graduate School of Computer Science and Systems Engineering},
+\orgname{Kyushu Institute of Technology}, \orgaddress{\street{680-4
+Kawazu}, \city{Iizuka}, \postcode{820-8502}, \state{Fukuoka},
+\country{Japan}}}
 
-\maketitle
-
-\begin{abstract}
-We ask whether a forward-model-based predictive state observer ---
-an internal forward model in the cybernetic sense --- can adapt
-its sensory prediction-error correction gain from signals the
-agent itself generates online (innovation history and per-episode
-reaching outcome), rather than from per-condition oracle labels
-(Appendix~\ref{app:oracle-supervised}). On a 34-muscle MyoSuite
-reaching arm, a predictive observer over a residual forward model
-uses a within-trial reliability-to-gain logistic and an
-across-trial outcome-driven update of its meta-parameters $\beta$
-via SPSA \cite{spall1992spsa}. Plugging this observer into a
-joint-space PD controller yields a mechanistic decomposition of
-the closed-loop correction-gain geometry. The geometry is
-dominated by forward-model error and bias, not by sensory
-reliability: a regression of per-cell
+\abstract{We ask whether a forward-model-based predictive state
+observer --- an internal forward model in the cybernetic sense ---
+can adapt its sensory prediction-error correction gain from signals
+the agent itself generates online (innovation history and
+per-episode reaching outcome), rather than from per-condition
+oracle labels (Appendix~\ref{app:oracle-supervised}). On a
+34-muscle MyoSuite reaching arm, a predictive observer over a
+residual forward model uses a within-trial reliability-to-gain
+logistic and an across-trial outcome-driven update of its
+meta-parameters $\beta$ via SPSA \cite{spall1992spsa}. Plugging
+this observer into a joint-space PD controller yields a
+mechanistic decomposition of the closed-loop correction-gain
+geometry. The geometry is dominated by forward-model error and
+bias, not by sensory reliability: a regression of per-cell
 $\Delta\mathrm{outcome}(K{=}1, K{=}0)$ across four forward-model
 qualities reaches $R^2 \!=\! 0.95$, against $R^2 \!=\! 0.17$ from
 reliability variance alone. A $30$-parameter diagonal field-wise
@@ -75,20 +68,19 @@ from $0.74$\,m (global SPSA) to $0.65$\,m, with delay-$18$ cells
 reaching $0.51$\,m, within $1.7$\,cm of the $K{=}0$ baseline. The
 remaining failure at delay-$0$ cells is unaffected by adding
 context input. Together, the results identify two distinct
-ceilings: a \emph{context aggregation ceiling} that
-agent-available innovation statistics can substantially close,
-and a \emph{parameterisation ceiling} of the reliability-to-gain
-logistic that they cannot. Offline-oracle-supervised gain
-predictors (Appendix~\ref{app:oracle-supervised}) serve as an
-upper-bound diagnostic.
-\end{abstract}
+ceilings: a \emph{context aggregation ceiling} that agent-available
+innovation statistics can substantially close, and a
+\emph{parameterisation ceiling} of the reliability-to-gain logistic
+that they cannot. Offline-oracle-supervised gain predictors
+(Appendix~\ref{app:oracle-supervised}) serve as an upper-bound
+diagnostic.}
 
-\begin{IEEEkeywords}
-Forward model, predictive state observer, sensory prediction-error
-correction, reliability-adaptive correction gain, outcome-driven
-adaptation, SPSA, multi-step rollout supervision, closed-loop
-control, MyoSuite, muscle-driven reaching.
-\end{IEEEkeywords}
+\keywords{Forward model, Predictive state observer, Sensory
+prediction-error correction, Reliability-adaptive correction gain,
+Outcome-driven adaptation, SPSA, Multi-step rollout supervision,
+Closed-loop control, MyoSuite, Muscle-driven reaching}
+
+\maketitle
 
 % ============================================================
 \section{Introduction}
@@ -1476,15 +1468,13 @@ substantive remaining design question for reliability-adaptive
 observers --- a question this paper makes precise enough to answer
 in follow-up work.
 
-% ============================================================
-\section*{Acknowledgement}
-% ============================================================
-\noindent The author thanks the MyoSuite maintainers for releasing the
+\backmatter
+
+\bmhead{Acknowledgments}
+The author thanks the MyoSuite maintainers for releasing the
 musculoskeletal benchmark used in this study.
 
-% ============================================================
 \section*{Declarations}
-% ============================================================
 
 \noindent\textbf{Funding.} No external funding was received for this
 study.
@@ -1518,11 +1508,8 @@ author and conducted all aspects of the work: conceptualisation,
 methodology, software, experiments, analysis, and manuscript
 preparation.
 
-\bibliographystyle{IEEEtran}
-\bibliography{refs}
-
 % ============================================================
-\appendices
+\begin{appendices}
 % ============================================================
 \section{Hyperparameters and Implementation Details}
 \label{app:hyperparams}
@@ -1534,13 +1521,11 @@ are listed verbatim in \texttt{configs/estimators/} and
 \texttt{configs/closed\_loop/}.
 
 \begin{table}[!htbp]
-\centering
 \caption{Hyperparameters used across the paper.}
 \label{tab:hyperparams}
 \renewcommand{\arraystretch}{1.15}
 \setlength{\tabcolsep}{3pt}
 \scriptsize
-\resizebox{\linewidth}{!}{%
 \begin{tabular}{@{}lll@{}}
 \toprule
 \textbf{Component} & \textbf{Hyperparameter} & \textbf{Value} \\
@@ -1601,8 +1586,7 @@ Multi-step loss
   & noise levels (focused) & none, high, xhigh \\
   & delays (focused) & 0, 18 \\
 \bottomrule
-\end{tabular}%
-}
+\end{tabular}
 \end{table}
 
 \section{Forward-Model Rollout Metrics}
@@ -2301,5 +2285,9 @@ identifiers used in the main results:
   \texttt{2026-05-17T01-20-04Z}
 \end{itemize}
 \end{footnotesize}
+
+\end{appendices}
+
+\bibliography{refs}
 
 \end{document}
