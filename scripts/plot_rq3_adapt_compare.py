@@ -51,6 +51,8 @@ def main():
                    default=Path("runs/per_cell_beta_diagnostic/2026-05-15T12-59-01Z/summary.csv"))
     p.add_argument("--per-cell-deployed", type=Path,
                    default=Path("runs/per_cell_beta_diagnostic/2026-05-15T12-59-01Z/deployed_eval.csv"))
+    p.add_argument("--feat-cond-deployed", type=Path,
+                   default=Path("runs/feature_conditioned_beta/2026-05-17T01-20-04Z/deployed_eval.csv"))
     p.add_argument("--out-stem", type=str, default="F_adapt_compare")
     args = p.parse_args()
 
@@ -60,24 +62,30 @@ def main():
                     "reliability_adaptive_v2_fullgrid"])
     pcs = pd.read_csv(args.per_cell_summary)
     pcd = pd.read_csv(args.per_cell_deployed)
+    fcd = pd.read_csv(args.feat_cond_deployed) if args.feat_cond_deployed.exists() else None
 
     pcs_map = {(row["noise"], int(row["delay"])): row["last_20_outcome_mean"]
                 for _, row in pcs.iterrows()}
     pcd_map = {(row["noise"], int(row["delay"])): row["deployed_min_tip_mean"]
                 for _, row in pcd.iterrows()}
+    fcd_map = {}
+    if fcd is not None:
+        fcd_map = {(row["noise"], int(row["delay"])): row["feat_cond_deployed_mean"]
+                    for _, row in fcd.iterrows()}
 
     labels = ["$K{=}0$", "$K{=}1$", "default reliab.",
               "global SPSA $\\beta$", "per-cell $\\beta$ training",
-              "per-cell $\\beta$ deployed"]
+              "per-cell $\\beta$ deployed",
+              "feature-cond. $\\beta$ deployed"]
     colors = ["#1f77b4", "#ff7f0e", "#2ca02c",
-              "#9467bd", "#bcbd22", "#d62728"]
+              "#9467bd", "#bcbd22", "#d62728", "#17becf"]
 
     fig, axes = plt.subplots(2, 1, figsize=(10, 7), sharex=False)
     for row, delay in enumerate([0, 18]):
         ax = axes[row]
         cells_delay = [(n, d) for (n, d) in CELLS if d == delay]
         x = np.arange(len(cells_delay))
-        width = 0.13
+        width = 0.115
 
         for i, label in enumerate(labels):
             vals = []
@@ -94,7 +102,9 @@ def main():
                     vals.append(pcs_map[(n, d)])
                 elif i == 5:
                     vals.append(pcd_map[(n, d)])
-            ax.bar(x + (i - 2.5) * width, vals, width,
+                elif i == 6:
+                    vals.append(fcd_map.get((n, d), np.nan))
+            ax.bar(x + (i - 3) * width, vals, width,
                    label=label, color=colors[i], alpha=0.9,
                    edgecolor="black", linewidth=0.3)
 
