@@ -10,7 +10,7 @@
 % Numbered variant); refs.bib is unchanged from the previous
 % IEEEtran-formatted draft (see main.tex.ieeetran-backup).
 
-\documentclass[sn-mathphys,Numbered,iicol]{sn-jnl}
+\documentclass[sn-mathphys,iicol]{sn-jnl}
 
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{graphicx}
@@ -48,37 +48,36 @@ Kawazu}, \city{Iizuka}, \postcode{820-8502}, \state{Fukuoka},
 \abstract{We ask whether a forward-model-based predictive state
 observer --- an internal forward model in the cybernetic sense ---
 can adapt its sensory prediction-error correction gain from signals
-the agent itself generates online (innovation history and
-per-episode reaching outcome), rather than from per-condition
-oracle labels (Appendix~\ref{app:oracle-supervised}). On a
-34-muscle MyoSuite reaching arm, a predictive observer over a
-residual forward model uses a within-trial reliability-to-gain
-logistic and an across-trial outcome-driven update of its
-meta-parameters $\beta$ via SPSA \cite{spall1992spsa}. Plugging
-this observer into a joint-space PD controller yields a
-mechanistic decomposition of the closed-loop correction-gain
-geometry. The geometry is dominated by forward-model error and
-bias, not by sensory reliability: a regression of per-cell
+the agent itself generates online, namely innovation history and
+per-episode reaching outcome, rather than from per-condition
+oracle labels. On a 34-muscle MyoSuite reaching arm, a predictive
+observer over a residual forward model uses a within-trial
+reliability-to-gain logistic and an across-trial outcome-driven
+update of its meta-parameters $\beta$ via a gradient-free two-point
+stochastic approximation rule. Plugging this observer into a
+joint-space PD controller yields a mechanistic decomposition of
+the closed-loop correction-gain geometry. The geometry is
+dominated by forward-model error and bias, not by sensory
+reliability: a regression of per-cell
 $\Delta\mathrm{outcome}(K{=}1, K{=}0)$ across four forward-model
 qualities reaches $R^2 \!=\! 0.95$, against $R^2 \!=\! 0.17$ from
 reliability variance alone. A $30$-parameter diagonal field-wise
 linear adapter that maps z-scored log innovation statistics to
 $\beta$ then reduces the $6$-cell-mean $\min$-tip reaching error
-from $0.74$\,m (global SPSA) to $0.65$\,m, with delay-$18$ cells
-reaching $0.51$\,m, within $1.7$\,cm of the $K{=}0$ baseline. The
-remaining failure at delay-$0$ cells is unaffected by adding
-context input. Together, the results identify two distinct
-ceilings: a \emph{context aggregation ceiling} that agent-available
-innovation statistics can substantially close, and a
-\emph{parameterisation ceiling} of the reliability-to-gain logistic
-that they cannot. Offline-oracle-supervised gain predictors
-(Appendix~\ref{app:oracle-supervised}) serve as an upper-bound
-diagnostic.}
+from $0.74$\,m (with a single global $\beta$) to $0.65$\,m, with
+delay-$18$ cells reaching $0.51$\,m, within $1.7$\,cm of the
+$K{=}0$ baseline. The remaining failure at delay-$0$ cells is
+unaffected by adding context input. Together, the results identify
+two distinct ceilings: a \emph{context aggregation ceiling} that
+agent-available innovation statistics can substantially close, and
+a \emph{parameterisation ceiling} of the reliability-to-gain
+logistic that they cannot. Offline-oracle-supervised gain
+predictors are retained as an upper-bound diagnostic against which
+agent-available adaptation is measured.}
 
 \keywords{Forward model, Predictive state observer, Sensory
-prediction-error correction, Reliability-adaptive correction gain,
-Outcome-driven adaptation, SPSA, Multi-step rollout supervision,
-Closed-loop control, MyoSuite, Muscle-driven reaching}
+prediction-error correction, Adaptive correction gain, Closed-loop
+motor control, Muscle-driven reaching}
 
 \maketitle
 
@@ -1474,7 +1473,7 @@ in follow-up work.
 The author thanks the MyoSuite maintainers for releasing the
 musculoskeletal benchmark used in this study.
 
-\section*{Declarations}
+\section*{Statements and Declarations}
 
 \noindent\textbf{Funding.} No external funding was received for this
 study.
@@ -1491,17 +1490,20 @@ involved.
 Not applicable (no human subjects).
 
 \noindent\textbf{Data availability.} All data used in this study are
-generated from the MyoSuite \texttt{myoElbowReach\_FixedV0} and
-\texttt{myoElbowReach\_RandomV0} environments
+generated from the MyoSuite \texttt{myoArmReachFixed-v0} and
+\texttt{myoArmReachRandom-v0} environments
 \cite{caggiano2022myosuite}; generation scripts and configurations
 are included with the code release (Appendix~\ref{app:repro}).
 
 \noindent\textbf{Code availability.} The full reproduction pipeline
 (dataset generation, forward-model training, closed-loop evaluation,
-SPSA and feature-conditioned $\beta$ training, and figure generation)
-is released as open-source software. Repository URL and frozen run
-identifiers required to regenerate every numerical claim and figure
-are listed in Appendix~\ref{app:repro}.
+across-trial $\beta$ adaptation, feature-conditioned $\beta$
+training, and figure generation) is released as open-source
+software at
+\url{https://github.com/jkoba0512/myoarm-fse}; an archived release
+DOI will be added upon acceptance. Frozen run identifiers required
+to regenerate every numerical claim and figure are listed in
+Appendix~\ref{app:repro}.
 
 \noindent\textbf{Author contributions.} Jun Kobayashi is the sole
 author and conducted all aspects of the work: conceptualisation,
