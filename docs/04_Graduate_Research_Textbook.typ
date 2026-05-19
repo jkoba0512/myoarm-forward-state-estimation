@@ -65,7 +65,7 @@
   #v(4pt)
   #text(size: 12pt)[理系大学院生が Project 1 を理解し、再現し、次フェーズへ拡張するために] \
   #v(8pt)
-  #text(size: 8.8pt, fill: gray)[作成日: 2026-05-12 / 対象: 修士・博士前期〜博士後期初期 / Repository: myoarm-forward-state-estimation]
+  #text(size: 8.8pt, fill: gray)[作成日: 2026-05-12 / 更新日: 2026-05-17 / 対象: 修士・博士前期〜博士後期初期 / Repository: myoarm-forward-state-estimation]
 ]
 
 #v(8pt)
@@ -101,13 +101,86 @@ Project 1 は「完成した単独テーマ」であると同時に、後続 Pro
 
 == 中心問い
 
-Project 1 の中心問いは次である。
+Project 1 の現在の中心問いは次である。
 
 #callout("中心問い", [
-myoArm reaching において、forward-model-based predictive state observer は、agent 自身が online で生成できるシグナル(innovation history と per-episode reaching outcome)だけから、correction gain を self-adapt できるか。
+myoArm reaching において、forward-model-based predictive state observer は、agent 自身が online で生成できるシグナル(innovation history、per-episode reaching outcome、innovation 統計)だけから、closed-loop correction gain の geometry を理解し、状況に応じて correction gain を self-adapt できるか。
 ], color: green, fill: pale-green)
 
-神経科学的には、これは小脳 forward model、efference copy、遅延感覚 feedback、sensory prediction error の追跡、感覚信頼度の online 推定、そして reaching outcome に基づく試行間学習を、筋骨格腕シミュレーション上で検証する第一段階である。生体は per-condition の swept oracle($K^*$ ラベル)を持たないので、agent-available signal だけで correction gain が決まりうるかは、forward-model framework の生物学的妥当性を問う中心的な実験となる。
+ここで *correction gain の geometry* とは、metric tensor のような数学的 geometry ではなく、 *最適 correction gain $K^*$ が条件空間上でどう分布しているかの「形・パターン」* を指す用語である。本論文では次の3つの軸を束ねた概念として使う。
+
+#table(
+  columns: (1.1fr, 3.2fr),
+  inset: 5pt,
+  [軸], [意味],
+  [cell 軸 \ (across-condition)], [6 cell(delay × reliability profile)それぞれで $K^*_("cl")$ が違う。delay-18 では K=0 と K=1 が拮抗しうるのに、delay-0 では sharp に K=0 が支配的、というような *cell ごとの最適 K の並び方*。],
+  [field 軸 \ (per-field)], [1 cell の中でも joint angle / joint velocity / muscle length / muscle velocity と field が違えば最適 $K_f$ が違いうる。 *どの field をどれだけ補正に依存させるか* という分布の形。],
+  [K-sweep の shape], [$K in [0,1]$ を sweep したときの outcome 曲線の形。K=0 で底が来るのか、interior に最小があるのか、K=1 まで延びるのか。forward-model 品質($H=1/4/8$)を変えると、この shape そのものが動く。],
+)
+
+つまり「geometry を理解する」とは、agent-available signal だけから「いまの cell / field / condition では $K^*$ がどこにあるか、その分布がどう違うか」を把握し、それに沿って $K$ を出せるかを問う、ということである。後述する C3 の回帰結果($Delta "outcome"$ を reliability variance では $R^2 = 0.17$ しか説明できないが、forward-model error / bias で $R^2 = 0.95$ を説明できる)が示しているのは、この geometry の形を支配するのは reliability ではなく forward-model error / bias と closed-loop task utility だ、という主結論である。
+
+==== C3 の回帰結果($R^2 = 0.17$ vs $0.95$)をやさしく
+
+ここで使う数字の意味をほぐしておく。
+
+#table(
+  columns: (1.2fr, 3fr),
+  inset: 5pt,
+  [量], [意味],
+  [$Delta "outcome"$], [$E["minTip" mid K=1] - E["minTip" mid K=0]$。 *「センサーを全乗せ(K=1)した時の指先誤差」から「prediction だけ(K=0)の指先誤差」を引いた値*。 正なら K=0 が有利、 負なら K=1 が有利。 cell ごとに「sensor を信じる価値が何 cm 分あるか」を 1 数字に縮めたもの。],
+  [reliability variance], [field ごとの innovation 二乗 EMA $v_f(t)$ のばらつき。 *「センサーの質と、 field 間のムラ」* を表す。 reliability-adaptive observer が直接見ている量。],
+  [forward-model error / bias], [rollout MSE(何 step も先まで予測した時の累積誤差)と bias norm。 *「自分の forward model がどれだけ正確で、 どの方向に偏っているか」* を表す量。],
+  [$R^2$], [回帰の説明力。 $1$ なら完全に説明、 $0$ ならまったく説明できない。],
+)
+
+cell × forward-model 設定の組合せ各点で、 $Delta "outcome"$ を「どっちで予測できるか」を試した結果は次のとおり。
+
+#table(
+  columns: (2.4fr, 0.7fr, 2fr),
+  inset: 5pt,
+  [説明変数], [$R^2$], [読み方],
+  [reliability variance + delay \ (= sensor の質)], [0.17], [ほぼ説明できない],
+  [forward-model error + bias + delay \ (= 自分の forward model の質)], [0.95], [ほぼ完全に説明できる],
+)
+
+*日常的な比喩で言うと*、 雨の日に運転していて、 ワイパーをどれだけ強く使うか($= K$)を decide する状況に近い。
+
+- 素朴な予想: *「ワイパーの強さは雨の強さ(= sensor reliability)で決めればよい」*
+- C3 の発見: *「実は、 ワイパーの強さを決めるのは雨の強さよりも、 *自分の運転技量(= forward model の質)* だった」*
+
+つまり、 *自分が前方をどれくらい正確に予想できるか* が、 *外をどれくらい見るべきか* を支配していて、 雨の強さ自体は二の次だった、 という構図である。
+
+reliability-adaptive observer は *直接* 見ているのは sensor の質(innovation → reliability → $K$ )なのに、 *closed-loop で $K^*$ を支配しているのは自分の forward model の質* である、 という *「観測している量と支配している量のずれ」* が C3 の発見である。これが「最適 geometry は sensory reliability *だけでは* 決まらない」の根拠であり、 後の C4 で feature-conditioned $beta$ に *innovation 統計* (= 自分の forward model の出来を間接的に映す量)を入れる動機にもなっている。
+
+神経科学的には、これは小脳 forward model、efference copy、遅延感覚 feedback、sensory prediction error の追跡、感覚信頼度の online 推定、そして reaching outcome に基づく試行間学習を、筋骨格腕シミュレーション上で検証する第一段階である。生体は per-condition の swept oracle($K^*$ ラベル)を持たないので、agent-available signal だけで correction gain がどこまで決まりうるかは、forward-model framework の生物学的妥当性を問う中心的な実験となる。
+
+2026-05-17 時点の論文は、単に「self-adapt できるか」から一段進み、 *なぜ global $beta$ が失敗するのか*を mechanistically 分解した。主要結論は、closed-loop correction gain の最適 geometry は sensory reliability だけでは決まらず、 forward-model error / bias と closed-loop task utility に強く支配される、というものである。その上で、 reliability-adaptive observer には 2 つの ceiling がある:
+
+#callout("現在の論文の中核: two-ceiling story", [
+1. *Context aggregation ceiling*: 1 つの global $beta$ では、cell ごとに異なる correction-gain geometry を同時に扱えない。ただし、agent-available な innovation 統計から $beta$ を context-conditioned に出すと、delay-18 の達成可能 regime ではこの ceiling を大きく緩和できる。\
+2. *Parameterisation ceiling*: reliability-to-gain logistic $K_f = sigma(beta_(0,f) + beta_(1,f) log r_f)$ 自体が、sharp な $K=0$ regime を表現しにくい。delay-0 cell では per-cell 最適化や feature-conditioned $beta$ でも $K=0$ に届かない。
+], color: purple, fill: pale-purple)
+
+==== 前提と単純化 — Project 1 で *固定している* もの
+
+「agent-available signal だけから $K$ を self-adapt できるか」を切り出して問うために、 Project 1 は周辺の難問をいくつか *固定パラメータ* として与えている。 これらは observer が *学習・推定する対象ではない*。
+
+#table(
+  columns: (1.2fr, 1.6fr, 1.8fr),
+  inset: 5pt,
+  [固定している量], [Project 1 での扱い], [生体での対応],
+  [感覚 delay $d$], [既知の定数($d in {0, 18}$ step)。 fixed-lag buffer 長も $d$ に合わせて固定。 *agent が推定しない*。], [小脳 forward model が求心遅延($tilde 50$ ms 固有受容 / $tilde 100$ ms 視覚)を *だいたい知っている* 前提に近い],
+  [observation noise $sigma_f$], [field ごとの Gaussian sigma を wrapper が固定で与える。 ただし $r_f(t)$ として *振る舞いから* online 推定する。], [sensor の質は静的だが、 信頼度の monitoring は脳側でやる],
+  [forward model $f_theta$], [事前に supervised 学習し、 trial 中・trial 間で *重みは凍結*。], [小脳の internal model は trial-by-trial で大きく動かさない近似],
+  [target / controller], [reach target と joint-PD controller は実験設定として固定], [task と low-level reflex は学習対象外],
+)
+
+つまり Project 1 が agent に *動かさせて* いるのは、 within-trial の EMA state $v_f(t)$(= 動的に変わる $K_f(t)$)と、 across-trial の meta-parameter $beta$ の2つだけである。 「delay を推定する observer」「forward model を online で更新する observer」「time-varying な delay に対応する observer」は *future work* として明示的に切り離してあり、 これにより *「$K$ の self-adapt 能力」のみを単離して測れる* 設定になっている。
+
+#callout("読み方", [
+本論文の「self-adapt できるか」は、 *delay と forward model を固定したうえでの* correction gain の adaptation を指す。 *delay も model も同時に動かす* observer は Project 1 のスコープ外。
+], color: purple, fill: pale-purple)
 
 工学的には、これは以下の問題になる。
 
@@ -154,7 +227,7 @@ controller が使うのは `xpred` ではなく、基本的には更新後の `x
 
 == この資料の読み方
 
-この資料は、最初から C1-C4 の論文主張を読む構成にはしていない。まず closed-loop pipeline、状態表現、forward model、predictive state observer、そして二層適応則(within-trial reliability と across-trial outcome adaptation)の意味を理解し、その後で結果 C1-C4 を読む。
+この資料は、最初から C1-C5 の論文主張を読む構成にはしていない。まず closed-loop pipeline、状態表現、forward model、predictive state observer、二層適応則(within-trial reliability と across-trial outcome adaptation)、そして feature-conditioned $beta$ adapter の意味を理解し、その後で結果 C1-C5 を読む。
 
 推奨順序:
 
@@ -165,8 +238,9 @@ controller が使うのは `xpred` ではなく、基本的には更新後の `x
 4. sensory prediction-error correction と gain K の意味
 5. innovation history からの within-trial reliability
 6. SPSA across-trial outcome adaptation
-7. oracle-supervised upper bound (Appendix 教材)
-8. C1-C4 の結果
+7. feature-conditioned beta adapter と two-ceiling story
+8. oracle-supervised upper bound (Appendix 教材)
+9. C1-C5 の結果
 ```
 
 `oracle-supervised predictor`(旧 §3.4)は upper-bound diagnostic として Appendix C 化された。Project 1 の中心提案は、oracle ラベルを使わない二層適応 observer である。
@@ -588,6 +662,25 @@ obs:    y_t ~= x_(t-d) + noise
 delay wrapper の意味を変えない。Project 1 では `observe(s_t) -> s_(t-d)` とし、delay buffer length と correction semantics を一貫させる。
 ])
 
+=== $d$ は既知という前提について
+
+上の手続きが成立するのは *agent が delay $d$ を知っている*(= buffer 長を $d$ に合わせて初期化できる)からである。 innovation $e_t = y_t - hat(x)_(t-d)$ の右辺第二項で buffer の *どの過去 entry* を取り出すかを決めるには、 「いま届いた $y_t$ が何時刻前の身体を見ているか」を知っている必要がある。
+
+#table(
+  columns: (1.2fr, 3fr),
+  inset: 5pt,
+  [], [Project 1 での扱い],
+  [delay $d$], [既知の定数($d in {0, 18}$ step)。 シミュレータの delay wrapper `observe(s_t) -> s_(t-d)` と observer の buffer length は *同じ $d$ で初期化* される。],
+  [buffer 長], [$d + 1$ で固定。 trial 中に変えない。],
+  [agent が推定するか], [*しない*。 delay の online 推定 / time-varying delay / unknown delay への頑健性は Project 1 のスコープ外。],
+)
+
+*delay と buffer 長が一致していないとどうなるか*: 「いま届いた sensor が見ている過去時刻」と「比較する自分の過去推定の時刻」がずれ、 innovation $e_t$ は *時刻違いの2つを引き算した量* になる。 reliability の意味も壊れるため、 within-trial layer の前提が崩壊する。 そのため Project 1 では `noise + delay` の cell を切り替えるたびに buffer 長も同期させる(L511-528 の cell 定義)。
+
+*生体での読み*: これは小脳 forward model が *求心遅延を「だいたい知っている」前提で efference copy から delay-compensated な予測を作る* という解釈に対応する($tilde 50$ ms 固有受容 / $tilde 100$ ms 視覚)。 神経系は遅延を直接「測って」いるのではなく、 *forward model の構造に delay-compensation を埋め込んで対処している* と想定する(Project 1 はこの近似を採用)。
+
+*なぜ単純化するか*: 「delay も同時に推定する observer」を作ると、 innovation の意味自体が delay 推定誤差に依存して変動するため、 *「reliability adaptation だけで $K^*$ にどこまで届くか」を単離して測ること* ができなくなる。 これを future work として切り離すことで、 C3 / C4 の結論(forward-model error が geometry を支配 / two ceiling)を *delay 推定の交絡なしに* 主張できる設計になっている。
+
 == 二層 reliability-adaptive observer
 
 ここまでの定式化では `K` は固定 scalar である。Project 1 の中心提案は、`K` を *agent 自身が online で生成できる信号* から動的に決める二層適応則である。
@@ -598,6 +691,75 @@ delay wrapper の意味を変えない。Project 1 では `observe(s_t) -> s_(t-
 ], color: green, fill: pale-green)
 
 #term("agent-available signals", [agent 自身が観測・計算可能なシグナルのこと。`y_t`(観測)、`xhat_(t-d)`(自分の推定)、`u_t`(自分の出した運動指令)、reach 終了後の `min_t |tip - target|` などが含まれる。`x_t`(真の状態)や per-condition の K-sweep oracle ラベルは含まれない。])
+
+=== $K_f(t)$ を計算する具体式
+
+within-trial layer が各 step で field $f$ の correction gain $K_f(t)$ を出すまでの流れは、 *innovation → EMA → reliability → logistic* の 4 段の合成である。 ここで全体を 1 つの式列としてまとめておく。
+
+#block(
+  width: 100%,
+  inset: 10pt,
+  radius: 4pt,
+  stroke: 0.6pt + gray,
+  fill: pale-gray,
+)[
+  *Step 1 — innovation(per-element)*
+
+  $ e_(t,i) = y_(t,i) - hat(x)_(t-d, i) quad (i in cal(I)_f) $
+
+  *Step 2 — field-wise innovation power(EMA)*
+
+  $ v_f(t) = (1 - alpha) v_f(t-1) + alpha dot.c underbrace(frac(1, |cal(I)_f|) sum_(i in cal(I)_f) e_(t,i)^2, "field $f$ の瞬時 innovation 二乗平均") $
+
+  ただし $alpha = 0.05$(有効窓 $tilde 20$ step)、 $v_f(0) = 1.0$。
+
+  *Step 3 — reliability*
+
+  $ r_f(t) = frac(1, epsilon + v_f(t)) $
+
+  ただし $epsilon = 10^(-6)$(数値安定化)。 $v_f$ が小さい(innovation が小さい = sensor を信じてよい)ほど $r_f$ は大きくなる。
+
+  *Step 4 — logistic gain*
+
+  $ K_f(t) = sigma(beta_(0,f) + beta_(1,f) log r_f(t)) in [0, 1] $
+
+  ただし $sigma(z) = 1 / (1 + e^(-z))$。 $beta_(0,f), beta_(1,f)$ は across-trial layer が与える meta-parameter で、 within-trial 中は固定。
+]
+
+これら 4 段を合成すると、 $K_f(t)$ は innovation 履歴 ${e_tau}_(tau <= t)$ から閉じた形で書ける。
+
+$ #math.equation(block: true, $K_f(t) = sigma( beta_(0,f) + beta_(1,f) log frac(1, epsilon + v_f(t)) )
+                              = sigma( beta_(0,f) - beta_(1,f) log (epsilon + v_f(t)) )$) $
+
+すなわち、 $K_f(t)$ は *「innovation の EMA 分散の log」を logistic で squash した量* である。
+
+#note([
+この関数形(logistic of log-reliability)が選ばれる根拠 ─ 3 つの要請(範囲 $[0,1]$ / $(0,infinity) -> RR$ の写像 / 2 自由度)と、 古典 Bayesian inverse-variance weighting $w_("obs") = sigma(log r_f)$ との対応($beta_0 = 0, beta_1 = 1$ で一致)は、 後の `==== なぜこの logistic 形で K_f(t) が決まるのか` および `==== Bayesian inference との対応` 節で詳述する。
+])
+
+#table(
+  columns: (1fr, 1.4fr, 2.6fr),
+  inset: 5pt,
+  [パラメータ], [型 / 値], [意味],
+  [$beta_(0,f)$], [$RR$(across-trial で学習)], [field $f$ の baseline gain $sigma(beta_(0,f))$ を決める intercept。 $r_f = 1$(=$v_f$ が中庸)の時の $K_f$。],
+  [$beta_(1,f)$], [$RR$(across-trial で学習)], [reliability への感応度(slope)。 大きいほど innovation の大小で $K_f$ が大きく動く。 default は $0.5$。],
+  [$alpha$], [$0.05$(固定)], [EMA の学習率。 $1/alpha approx 20$ step が effective window。],
+  [$v_f(0)$], [$1.0$(固定)], [EMA 初期値。 これにより $r_f(0) = 1 / (epsilon + 1) approx 1$、 $K_f(0) = sigma(beta_(0,f))$ となる。],
+  [$epsilon$], [$10^(-6)$(固定)], [$r_f$ の分母が 0 に落ちないようにする数値安定化。],
+)
+
+#callout("読み方", [
+$K_f(t)$ の動態は *2 つの時間スケール* に分解できる。\
+\
+- *Fast(within-trial)*: $v_f(t)$ が innovation 二乗の EMA として step ごとに動き、 $K_f(t)$ もこれにつれて動く。 $beta$ は固定。\
+- *Slow(across-trial)*: $beta_(0,f), beta_(1,f)$ が SPSA で trial をまたいで動き、 *「reliability から $K_f$ への写像曲線そのもの」* が trial 間で形を変える。\
+\
+*学習されているのは何か*: within-trial の内側では $v_f(t)$(動的 state)が変わるが、 重みパラメータ $beta$ は固定 const。 episode 終了で $v_f$ もリセット。
+], color: green, fill: pale-green)
+
+#callout("83 次元の broadcast", [
+$K_f(t)$ は field $f$ ごとの *スカラ* で、 5 field しかない($f in {"qpos", "qvel", "act", "tip_pos", "reach_err"}$)。 これを buffer correction で適用する際は、 各 field のインデックス集合 $cal(I)_f$ に *broadcast* して 83 次元の gain vector $K(t) in [0,1]^83$ にし、 innovation に要素積で掛ける(L739-741 step ⑥)。
+], color: purple, fill: pale-purple)
 
 === 二層の役割と時間スケール
 
@@ -786,7 +948,31 @@ C1(default reliability が task-misaligned)が直接の動機。
 + 一方で、毎 step outcome 信号を待つことはできない。reach が終わるまで $"minTip"$ は確定しない。
 + したがって *innovation で step ごとに即応*(within-trial)+ *outcome で trial 間で slow correction*(across-trial)という二層構成が自然な解になる。
 
-C2 の主結果 = across-trial layer が 1 cell で $17$ / $23$ cm の gap を埋める = 「outcome を加えて初めて task-aware adaptation になる」を直接示している。C3 の限界 = $beta$ 一つで multi-cell に対応できない = across-trial layer の *parameterisation 限界*(SPSA 限界ではない)。次の自然な拡張は $beta$ 自体を context-conditioned network 化すること(Project 1.5)。
+C2 の主結果 = across-trial layer が 1 cell で $17$ / $23$ cm の gap を埋める = 「outcome を加えて初めて task-aware adaptation になる」を直接示している。だが、現在の論文で最も重要なのはその先である。C3 は、closed-loop correction-gain geometry が sensory reliability ではなく forward-model error / bias に強く支配されることを示す。C4 は、global $beta$ の限界を *context aggregation ceiling* として分解し、30 parameter の diagonal field-wise linear adapter が delay-18 regime でこの ceiling を大きく緩和することを示す。同時に、delay-0 cell では logistic reliability-to-gain map 自体の *parameterisation ceiling* が残る。
+
+=== Feature-conditioned beta adapter: context を beta に入れる
+
+global SPSA では、6 cell すべてに同じ $beta in RR^10$ を使う。これは「どの cell にいるか」を $beta$ が知らないという意味で情報不足である。現在の論文では、これを解く最小モデルとして *feature-conditioned beta adapter* を導入した。
+
+#callout("feature-conditioned beta adapter の考え方", [
+global SPSA で得た base $beta$ に、cell ごとの innovation 統計から計算した補正 $Delta beta$ を足す。\
+\
+$ beta_("eff") = beta_("base") + Delta beta(z) $\
+\
+ここで $z$ は agent が自分で測れる innovation mean / variance を log 変換・z-score した特徴であり、oracle $K^*$ ラベルや true state は使わない。
+], color: green, fill: pale-green)
+
+実装は非常に小さい。各 sensory field $f$ について、mean と variance の 2 特徴から intercept / slope の 2 つの補正を出す。
+
+$ Delta beta_(0,f) = w^(0)_("mean", f) z_("mean", f) + w^(0)_("var", f) z_("var", f) + b^(0)_f $
+
+$ Delta beta_(1,f) = w^(1)_("mean", f) z_("mean", f) + w^(1)_("var", f) z_("var", f) + b^(1)_f $
+
+5 field × 2 output × 3 weight = 30 parameter。これは black-box MLP ではなく、field-wise な線形補正である。したがって、論文上の主張は「大きな neural network がうまくやった」ではなく、 *agent-available innovation statistics だけで context aggregation ceiling のかなりの部分を緩和できる* という mechanistic claim になる。
+
+#warn([
+この adapter は per-cell oracle ではない。cell label `(sigma, d)` や per-cell 最適 $K^*$ は入力しない。z-score の normalization constants は training rollout から一度推定して固定する sensory scale calibration であり、最適 gain 情報を encode しない。
+])
 
 === Within-trial layer: innovation history から reliability へ
 
@@ -1090,7 +1276,7 @@ reach task では前者を測りたいので min-tip が適切。
 - min-tip = `0.04` → *ピーク到達精度* を直接測れる
 - final-tip = `0.09` → 落ち着いた後の位置だが「controller が overshoot して戻ってきた」という余計な情報が混ざる
 
-論文 C1-C4 は「reliability adaptation が *届く能力* に効くか」を問うので、controller 静定後のブレではなくピーク精度を評価したい。
+論文 C1-C5 は「reliability adaptation が *届く能力* に効くか」と「その限界が forward-model geometry / context aggregation / parameterisation のどこから来るか」を問うので、controller 静定後のブレではなくピーク精度を評価したい。
 
 *4. paper では両方の metric を記録している*
 
@@ -1109,7 +1295,7 @@ reach task では前者を測りたいので min-tip が適切。
   [`success_015`],     [一度でも 15 cm 以内に入ったか(bool)],
 )
 
-C1-C4 の headline は min-tip だが、final-tip も計算済みで Appendix で参照可能。reviewer に「final で評価したらどう違うか」と問われても回答できる構造になっている。
+C1-C5 の headline は min-tip だが、final-tip も計算済みで Appendix で参照可能。reviewer に「final で評価したらどう違うか」と問われても回答できる構造になっている。
 
 ===== 生体研究との対応
 
@@ -1502,7 +1688,7 @@ SPSA は次元スケーラブルだが万能ではない:
   inset: 4pt,
   [限界], [Project 1 での影響],
   [局所最小],
-  [$J(beta)$ が非凸なら局所最小に捕まる可能性。Project 1 では $beta$ 空間が比較的なめらかなので問題化していないが、context-conditioned $beta$ network (Project 1.5) に拡張すると深刻化する可能性],
+  [$J(beta)$ が非凸なら局所最小に捕まる可能性。Project 1 の 10 次元 global $beta$ では比較的安定したが、30 parameter の feature-conditioned adapter では tuning がより重要になる。さらに MLP などへ拡張すると深刻化する可能性],
   [hyperparameter 選択],
   [$a, c, A$ の選択は task 依存。Project 1 は Spall 推奨値を採用しているが、収束速度は task ごとに改善余地],
   [評価コスト],
@@ -1609,9 +1795,9 @@ uv run python scripts/evaluate_closed_loop.py \
 
 = 主要結果の読み方
 
-ここまでで道具(forward model、 predictive state observer、 within-trial / across-trial の二層適応、 Appendix C の oracle-supervised 教材)が揃った。ここからはそれらを使って論文の主張 C1〜C4 を読む。
+ここまでで道具(forward model、 predictive state observer、 within-trial / across-trial の二層適応、 feature-conditioned $beta$ adapter、 Appendix C の oracle-supervised 教材)が揃った。ここからはそれらを使って論文の主張 C1〜C5 を読む。
 
-== 4 つの主張をひとことで
+== 5 つの主張をひとことで
 
 #table(
   columns: (0.6fr, 3.3fr, 2.6fr),
@@ -1619,18 +1805,22 @@ uv run python scripts/evaluate_closed_loop.py \
   [Claim], [何が分かったか], [一言要約],
 
   [C1],
-  [初期設定の reliability ルール($beta_0=0, beta_1=0.5$)では、6 つの cell すべてで *目標 $K=0$ から 23〜29 cm 離れた* min-tip が出る。],
+  [初期設定の reliability ルール($beta_0=0, beta_1=0.5$)では、 *delay=0 cell で $K=0$ から 35 cm、 delay=18 cell で 22 cm* 離れた min-tip が出る($n=200$ episodes/cell、 paired bootstrap 95% CI tight)。],
   [innovation を眺めるだけでは「センサーを信じるか予測を信じるか」の正しい比率にたどり着けない。],
 
   [C2],
-  [1 つの cell に絞って SPSA を 100 回まわすと、その cell で *23 cm の差のうち約 17 cm を埋める*(0.77 m → 0.56 m、 $K=0$ は 0.50 m)。],
+  [1 つの cell に絞って SPSA を 100 回まわすと、その cell で *差の大部分を埋める*(deployed: $0.77 #h(0.1em)"m" -> 0.56 #h(0.1em)"m"$、 10 ep deployment、 10 ep $K=0$ baseline $0.50 #h(0.1em)"m"$)。],
   [リーチの結果(`minTip`)1 つを見るだけで、 agent は自分で gain ルールを調整できる。],
 
   [C3],
-  [6 cell から毎回ランダムに 1 つ選んで SPSA を回しても、 *delay 18 の 3 cell でわずか 3〜5 cm の改善*、 delay 0 の 3 cell では改善ゼロ。],
-  [SPSA の問題ではなく、 $beta$ を 10 個の数だけで表現する設計の限界。 cell ごとに違う $beta$ を出す仕組みが必要。],
+  [closed-loop correction-gain geometry は sensory reliability ではなく forward-model error / bias に支配される。Delta outcome の回帰で $R^2 = 0.17$ vs $0.95$。],
+  [「sensor が信頼できるか」より、「forward model がその task/controller に十分役立つか」が最適 gain を決める。],
 
   [C4],
+  [global $beta$ には context aggregation ceiling がある。30 parameter の feature-conditioned beta adapter は 6-cell mean を $0.636 #h(0.1em)"m" -> 0.556 #h(0.1em)"m"$ に改善し、delay-18 では $K=0$ baseline と 2.0 cm 内に届く($n=200$/cell)。一方、delay-0 では parameterisation ceiling が残る。],
+  [状況依存 beta で破れる ceiling と、logistic map そのものの ceiling を分ける。],
+
+  [C5],
   [ReachFixed で学んだ $beta$ を ReachRandom にそのまま持ってくると *悪化する*($K=0$ を 4〜5 cm 下回る)。一方、 初期設定 reliability の方は意外にも *拮抗* する。],
   [正しい gain ルールはタスク次第。 学習結果は別のタスクには移植できない場合がある。],
 )
@@ -1643,7 +1833,7 @@ uv run python scripts/evaluate_closed_loop.py \
 
 #figure(
   image("../figures/F_reliability_default.png", width: 90%),
-  caption: [青 = $K=0$(forward model だけ信じる)、 橙 = $K=1$(センサーだけ信じる)、 緑 = default reliability。 default は $K=0$ を *23〜29 cm 下回る*。],
+  caption: [横並び 2-subplot per-delay split($n=200$ episodes/cell, mean ± 95% percentile bootstrap CI)。 青 = $K=0$(forward model だけ信じる)、 橙 = $K=1$(センサーだけ信じる)、 緑 = default reliability。 default は $K=0$ を *delay-0 で 35 cm、 delay-18 で 22 cm* 下回る。],
 )
 
 === 何が起きているか — 実測の per-field $K_f$
@@ -1698,7 +1888,7 @@ default ルールが各 cell で出す per-field の correction gain $K_f$ を�
 - 10-iter 移動平均(訓練ノイズを均した値): 一時的に $K=0$ baseline の 0.50 m に到達
 - 学習済み $beta$ を *別の 10 episode で改めて評価*(deployed eval): 0.56 m
 - *元の default ルール*: 0.77 m
-- 差し引き: $0.77 → 0.56$ で 21 cm 改善。 $K=0$ までの残差 6 cm。
+- 差し引き: $0.77 → 0.56$ で約 17 cm 改善。 default reliability から $K=0$ までの 23 cm gap の大半を回収し、$K=0$ までの残差は約 6 cm。
 
 === どこに「学習」が現れたか
 
@@ -1714,51 +1904,205 @@ default ルールが各 cell で出す per-field の correction gain $K_f$ を�
 教師信号(=「最適 $K$ はこれ」というラベル)を *外から与えられない* 設定で、 agent が自力で改善できることが分かった。
 ], color: green, fill: pale-green)
 
-== C3 ─ 6 cell 全部を相手にすると、 改善は頭打ちになる
+== C3 ─ 最適 gain の geometry は forward model の性能で決まる
 
-=== どんな実験か
+=== 問い: なぜ cell ごとに最適 $K$ が違うのか
 
-C2 では 1 cell に固定したが、 *6 cell から毎 iteration でランダムに 1 つを選んで* SPSA を回した。 1 つの $beta$ が 6 cell すべてに対応できるかをテスト。
+C2 では 1 cell に固定すれば outcome-driven SPSA が効くことを示した。しかし、6 cell 全部に 1 つの $beta$ を使うと、改善は頭打ちになる。ここで本当に知りたいのは「global $beta$ が失敗した」という表面的な事実ではなく、 *そもそもなぜ cell ごとに最適な correction gain geometry が違うのか* である。
+
+現在の論文では、各 model × cell について次を集計した。
+
+- $Delta "outcome"(K=1, K=0) = E["minTip" | K=1] - E["minTip" | K=0]$
+- sensory reliability variance
+- delay
+- forward-model rollout MSE
+- forward-model bias norm
+- task-space signed bias
+
+この $Delta "outcome"$ は、K=1(observation correction)が K=0(prediction only)よりどれくらい悪いかを表す。正なら K=0 が有利、負なら K=1 が有利である。
+
+#figure(
+  image("../figures/F_geometry_regression.png", width: 90%),
+  caption: [左: reliability variance だけでは $Delta "outcome"$ をあまり説明できない。右: forward-model rollout MSE は $Delta "outcome"$ と強く対応する。joint regression では forward-model error / bias features が $R^2 = 0.95$ を出す。],
+)
+
+=== 結果: reliability ではなく forward-model error / bias が支配的
+
+回帰結果は明確だった。
+
+#table(
+  columns: (2.4fr, 1fr),
+  inset: 5pt,
+  [説明変数セット], [$R^2$],
+  [reliability variance + delay], [0.17],
+  [forward-model rollout MSE + bias + delay], [0.95],
+  [すべて combined], [0.951],
+)
+
+これは重要である。within-trial reliability layer が直接見ているのは innovation / reliability だが、closed-loop で「sensor correction が役に立つか」を決めている主因は、 *forward model がどれくらい正確で、どのように bias を持つか* だった。
+
+#callout("C3 の核心", [
+最適 correction gain は sensory reliability だけでは決まらない。\
+\
+$K^*_("cl") = f("sensory reliability", "delay", "forward-model error", "model bias", "task objective", "controller sensitivity")$\
+\
+Project 1 の focused grid では、特に forward-model error / bias が支配的だった。つまり、innovation は sensor quality を教えてくれるが、 *forward model が task に対して十分良いか* は直接教えてくれない。
+], color: green, fill: pale-green)
+
+=== model quality を変えると $K^*_("cl")$ も動く
+
+この解釈を直接確認するため、forward model の rollout supervision horizon を変えた。
+
+- H=1
+- H=4
+- H=8
+- undertrained H=8
+
+#figure(
+  image("../figures/F_fm_quality_shift.png", width: 90%),
+  caption: [forward-model quality を変えた K-sweep。H=8 では K=0 が全 cell で支配的。H=1 では delay-18 cell で K=0 と K=1 が拮抗し、sensor correction の価値が上がる。],
+)
+
+読み方:
+
+- *H=8 full*: forward model が強く、K=0 prediction-only が全 cell で最適。
+- *H=4*: K=0 優位は残るが gap は縮む。
+- *H=1*: delay-18 cell で K=1 が K=0 に追いつく。forward prediction が弱くなると sensor correction の価値が上がる。
+- *undertrained H=8*: closed-loop performance は下がるが、K geometry を大きく動かすほどではなかった。
+
+したがって C3 は、C1/C2 の「reliability + outcome」だけでなく、 *forward model の性能が correction gain の正解を形作る* ことを明示する。
+
+== C4 ─ two ceilings: 状況依存で破れる限界と、表現形式の限界
+
+=== まず global beta はなぜ頭打ちになるか
+
+C2 では 1 cell に固定したが、 *6 cell から毎 iteration でランダムに 1 つを選んで* SPSA を回すと、1 つの $beta$ が 6 cell すべてに対応できるかをテストできる。
 
 #figure(
   image("../figures/F_spsa_fullgrid.png", width: 90%),
-  caption: [上: 6 cell の平均 `minTip` の SPSA 軌跡。 $K=0$ の 6 cell 平均(0.49 m)に届かない。 下: 100 iter 後の各 cell の `minTip` を、 $K=0$(青)・default reliability(緑)・SPSA 学習後 $beta$(紫)で比較。],
+  caption: [上: 6 cell の平均 `minTip` の SPSA 軌跡(training-time、$S=12$ paired ep/iter)。 $K=0$ の 6 cell 平均($n=200$ deployment で 0.38 m)には届かない。 下: deployment ($n=200$ episodes/cell) の各 cell の `minTip` を、 $K=0$(青)・default reliability(緑)・SPSA 学習後 $beta$(紫)で比較。],
 )
 
 === 数字の読み方
 
-- delay 18 の 3 cell: default に対し $3$〜$5$ cm の改善。 ただし $K=0$ までは依然 $19$〜$22$ cm 離れている。
-- delay 0 の 3 cell: SPSA の改善はほぼ *ゼロ*。 $K=0$ までは $tilde 28$ cm 離れている。
+- delay 18 の 3 cell: default に対し $approx 5$ cm の改善($n=200$/cell、 paired CI tight)。 ただし $K=0$ までは依然 $approx 17$ cm 離れている。
+- delay 0 の 3 cell: SPSA の改善はほぼ *ゼロ*(xhigh-d=0 では paired CI が 0 を含む)。 $K=0$ までは $approx 35$ cm 離れている。
 - どの cell も *$K^*_("cl") = 0$ が正解* なのに、 1 つの $beta$ ではそこまでたどり着けない。
 
-=== なぜ頭打ちになるか — *parameterisation の限界*
+これは *context aggregation ceiling* である。global $beta$ は、cell ごとの innovation geometry の違いを入力として受け取らない。だから、6 cell をまとめて平均した妥協点にしか行けない。
 
-$beta$ は実数 10 個分($beta_(0,f)$ 5 個 + $beta_(1,f)$ 5 個)。 これだけで *6 つの環境すべて* の最適点を表現することはできない。
+=== per-cell beta diagnostic: それでも delay-0 では届かない
 
-具体例:
-- 高ノイズ cell では innovation が大きいので $K_f$ が小さくなりやすい → そのまま $K_f approx 0$ に近づける $beta_(0,f)$ を選びたい
-- 低ノイズ cell では innovation が小さいので $K_f$ が大きくなりやすい → 上と同じ $beta_(0,f)$ では over-suppress(下げ過ぎ)になる
+では、cell ごとに $beta$ を別々に最適化すれば解けるのか。6 cell それぞれで独立に SPSA を 100 iteration 走らせた(deployed eval は 10 episode の diagnostic 値、 他セクションの $n=200$ deployment とは直接比較しない)。
 
-1 つの $beta$ で両立しないので、 SPSA は妥協点に収束する。 これは *SPSA という最適化手法の失敗ではない*(C2 で 1 cell なら届く)。 *「innovation の情報だけ受けて $beta$ を出す」という設計* の限界。
+#table(
+  columns: (1.4fr, 0.8fr, 1.1fr, 1fr),
+  inset: 4pt,
+  [cell], [training], [deployed (n=10)], [方向],
+  [`none, d=0`], [0.748], [0.784], [悪化],
+  [`high, d=0`], [0.749], [0.782], [悪化],
+  [`xhigh, d=0`], [0.739], [0.769], [悪化],
+  [`none, d=18`], [0.489], [0.561], [改善],
+  [`high, d=18`], [0.559], [0.697], [改善],
+  [`xhigh, d=18`], [0.543], [0.670], [改善],
+)
 
-#callout("C3 の核心 — SPSA が悪いのではない", [
-1 cell に絞れば SPSA は確かに $K=0$ レベルまで持っていける(C2)。 multi-cell で頭打ちになるのは、 *$beta in RR^10$ という設計が cell の多様性に対して表現力不足* だから。\
+結果は二分した。
+
+- *delay-18*: training-time では $K=0$ baseline 近くに届く。context を分ければ改善できる。
+- *delay-0*: per-cell にしても悪化する。つまり、context を分けても届かない。
+
+この delay-0 の失敗が *parameterisation ceiling* である。logistic map で $K_f -> 0$ を出すには、$beta_(0,f) -> -infinity$ のような極端な値が必要になる。しかも delay-0 では K-sweep が sharp で、$K=0$ から $K=0.25$ に少し上げるだけで min-tip が 0.49 m → 0.77 m へ跳ぶ。滑らかな logistic reliability-to-gain map では、この sharp な $K=0$ regime を表現・探索しにくい。
+
+#callout("two ceilings", [
+*Context aggregation ceiling*: global $beta$ が context を見ないため、cell ごとの geometry をまとめてしまう。これは innovation statistics を入力する feature-conditioned $beta$ で緩和できる。\
 \
-解決の方向: $beta$ を *固定数* ではなく、 *cell ごとに変える仕組み* にする。 たとえば「直近の innovation 統計を見て、 そのときの $beta$ を吐く小さな network」 = context-conditioned $beta$ network。 これは Project 1.5 の自然な目標。
-], color: amber, fill: pale-amber)
+*Parameterisation ceiling*: reliability-to-gain logistic 自体が sharp な $K=0$ regime を表現できない。これは context を与えても残る。
+], color: purple, fill: pale-purple)
 
-=== 次のモデル形(将来研究)
+==== two ceilings をもう少しやさしく
 
-```text
-beta_network(
-  直近の field ごと innovation 統計
-    (平均, 分散, 自己相関)
-) -> beta in R^10
-```
+reliability-adaptive observer は、各 field の correction gain $K_f$ を1本のロジスティック曲線
+$$K_f = sigma(beta_(0,f) + beta_(1,f) log r_f)$$
+で決めている。 $beta = {beta_(0,f), beta_(1,f)}$ は trial をまたいで動かす「ノブ(meta-parameter)」、 $r_f$ は trial 中に innovation から推定する「sensor の信頼度」である。理想は各 cell で $K^*_("cl")$ にぴたりと届くことだが、 *うまく届かないところに2種類の壁* があり、 *出どころが違う* というのが C4 の主張である。
 
-`(sigma, d)` を補助入力にすることもできるが、 生体はノイズや遅延の数値を直接観測しないので、 *innovation の時系列だけ* を主入力にするのが生物学的整合性が高い。
+*Ceiling 1: Context aggregation ceiling ─「目隠しで全 cell 平均に妥協する壁」*
 
-== C4 ─ ルールはタスク次第:転移は必ずしも成功しない
+イメージとしては、ホテルのシャワーで *6 部屋すべての温度を1つのバルブで決めなければならない* 状況を考えるとよい。部屋ごとに快適温度が違うのに、バルブは「いまどの部屋に水を送っているか」を知らない。結局どの部屋にもそこそこの妥協温度しか配れない。
+
+これが global $beta$ の SPSA で起きていることである。 6 cell の正解はすべて $K^*_("cl") = 0$ なのに、 1つの $beta$ では 6 cell をまとめて平均した妥協点にしか行けない($n=200$/cell で、 delay-18 で $K=0$ まで $tilde 17$ cm、 delay-0 で $tilde 35$ cm 残る)。
+
+*壊し方* は単純で、「いまどの cell にいるか」をノブに教えればよい ─ つまり innovation 統計 $z$ を入力にして、 $beta(z)$ として *context-conditioned* に出す。 これは agent-available 信号で実装でき、後述の通り delay-18 regime ではこの壁を $K=0$ baseline と 2.0 cm 内まで緩和する。
+
+#callout("Ceiling 1 のまとめ", [
+*情報の壁。* ノブが context を見ていないことが原因なので、 innovation 統計を入力に加えると緩和できる。
+], color: purple, fill: pale-purple)
+
+*Ceiling 2: Parameterisation ceiling ─「曲線の形が崖を表現できない壁」*
+
+同じシャワーの比喩で続けると、今度は *バルブを cell ごとに別々にしてよい* と仮定する。それでも *バルブそのものが連続ダイヤル* で、 *正解は「水量ゼロでピタッと止まる」位置にしかない* ような場合、 ダイヤルをいくら左に回してもほんの少しは漏れる。 *ダイヤルの形そのもの* が「ゼロに張り付く」を表現できないからである。
+
+これが logistic 写像 $K_f = sigma(dot.c)$ が delay-0 cell で起こす問題である。 $K_f = 0$ には $beta_(0,f) -> -infinity$ が必要で、 さらに delay-0 では K-sweep が *崖* のように sharp である:
+
+#table(
+  columns: (0.7fr, 1fr),
+  inset: 5pt,
+  [$K$], [min-tip @ delay-0],
+  [$K = 0$], [0.49 m],
+  [$K = 0.25$], [0.77 m],
+)
+
+つまり $K=0$ から少し外れた瞬間に約 28 cm 跳ぶ。 滑らかな logistic では、 この *「ゼロちょうどに張り付く」状態* を安定に表現・探索しにくい。 実際、 cell ごとに $beta$ を個別最適化しても delay-0 cell は悪化し、 後述の feature-conditioned $beta$(context を見せる方式)でも 0.78 m のままで止まる ─ *context を入れても壁が残る*。
+
+#callout("Ceiling 2 のまとめ", [
+*表現形式の壁。* logistic 写像そのものが sharp な $K=0$ regime を表現できないので、 context を増やしても解けない。 写像の設計(piecewise / threshold / floor-gated 等)を変える必要がある。
+], color: purple, fill: pale-purple)
+
+*なぜ2つに分けるのが大事か*
+
+C4 の核心は「reliability adaptation がうまくいかない時、 *何が悪いか* を切り分けた」点にある。
+
+#table(
+  columns: (2fr, 1.5fr, 2fr),
+  inset: 5pt,
+  [観察], [原因の診断], [直す方向],
+  [global $beta$ で頭打ち、 cell ごとに状況が違う], [Context aggregation ceiling], [innovation 統計を入力に入れる(feature-conditioned $beta$)],
+  [context を入れても sharp $K=0$ に届かない], [Parameterisation ceiling], [logistic 以外の写像(piecewise / threshold / floor-gated 等)],
+)
+
+つまり、 *「情報が足りないのか」と「表現形式が足りないのか」を別の問題として扱う* ことが two-ceiling story の構造である。1つ目は agent-available 信号で *緩和できる*(delay-18 で実証)。2つ目は写像の設計変更が必要であり、 future work として残る。
+
+=== feature-conditioned beta が context aggregation ceiling を緩和する
+
+そこで、30 parameter の diagonal field-wise linear adapter を使う。
+
+#figure(
+  image("../figures/F_adapt_compare.png", width: 94%),
+  caption: [7 estimator 比較($n=200$ episodes/cell、 per-cell $beta$ 行のみ 10-episode diagnostic deployment)。delay-0 では K=0 以外が 0.71〜0.78 m に張り付き、parameterisation ceiling が残る。delay-18 では feature-conditioned beta が 0.40 m まで改善し、K=0 baseline 0.38 m と 2.0 cm 内に届く。],
+)
+
+結果:
+
+#table(
+  columns: (1.9fr, 0.8fr, 0.8fr, 0.8fr),
+  inset: 4pt,
+  [estimator], [d=0 mean], [d=18 mean], [6-cell mean],
+  [`K=0`], [0.375], [0.381], [0.378],
+  [feature-conditioned $beta$], [0.711], [*0.402*], [*0.556*],
+  [per-cell $beta$ deployed#footnote[10-episode diagnostic deployment; 他行は $n=200$。]<pcbeta>], [0.778], [0.643], [0.711],
+  [global SPSA $beta$], [0.721], [0.550], [0.636],
+  [default reliability], [0.728], [0.601], [0.665],
+)
+
+feature-conditioned $beta$ は、6-cell mean を 0.636 m(global SPSA)から 0.556 m へ改善する($n=200$/cell)。改善はほぼ delay-18 regime に集中し、delay-18 では $K=0$ baseline 0.381 m と 2.0 cm 内($0.402$ m)に届く。一方、delay-0 では 0.711 m のままで、parameterisation ceiling は残る。
+
+#callout("C4 の核心", [
+agent-available な innovation statistics には、context aggregation ceiling を緩和する情報が含まれている。\
+\
+ただし、情報があっても reliability-to-gain の写像が不適切なら、sharp な $K=0$ regime には届かない。したがって、残る設計問題は「context を入れるか」だけでなく、 *reliability を gain にどう写像するか* である。
+], color: green, fill: pale-green)
+
+== C5 ─ ルールはタスク次第:転移は必ずしも成功しない
 
 === どんな実験か
 
@@ -1793,7 +2137,7 @@ beta_network(
 
 ReachFixed の SPSA は *「すべての cell で $K=0$ が正解」* という前提のもとで、 $beta$ を「gain を低く保つ」方向に最適化した。 ReachRandom はそもそも前提が違う(cell ごとに違う最適 $K$ を要求する)ので、 同じ $beta$ では逆効果になる。
 
-#callout("C4 の核心 — 正解のルールはタスク次第", [
+#callout("C5 の核心 — 正解のルールはタスク次第", [
 *correction-gain ルールの「正解」は、 そのタスクで「最適 $K$ がどう分布するか」によって決まる*。\
 \
 - 「最適 $K$ がどの cell でも同じ」タスクでは、 outcome 学習(SPSA)が default ルールより良い。\
@@ -1912,28 +2256,28 @@ abstract / intro で "no oracle access" / "without an offline oracle" と書く�
 
 = Project 2 / Project 3 への接続
 
-== Project 1.5: context-conditioned $beta$ network
+== Project 1.5: parameterisation ceiling を超える gain map
 
-C3 の structural ceiling は、natural な follow-up project として「context-conditioned $beta$ 学習器」を要請する。
+以前は、C3 の structural ceiling を超える自然な follow-up として「context-conditioned $beta$ network」を想定していた。現在の論文では、その最小版をすでに main result として実装した。30 parameter の diagonal field-wise linear adapter が、agent-available innovation statistics から $Delta beta$ を出し、delay-18 regime で context aggregation ceiling を大きく緩和した。
 
 ```text
-beta_network:
-  input  = sliding window of field-wise innovation statistics
-           (mean, variance, autocorrelation  optionally (sigma, d)
-            as ablation-only auxiliary)
-  output = beta = {beta_0_f, beta_1_f} in R^10
+feature-conditioned beta adapter:
+  input  = per-field log innovation mean / variance
+  output = residual Delta beta on top of global SPSA beta
+  result = d=18 mean 0.402 m, K=0 baseline 0.381 m (n=200/cell)
 ```
 
-学習 signal は引き続き per-episode reaching outcome を SPSA / REINFORCE / ES のような black-box optimization で用いる(target K のラベルは依然として使わない)。
+したがって Project 1.5 の焦点は、context-conditioned $beta$ そのものではなく、 *parameterisation ceiling* を超える gain map へ移る。
 
-設計上の question:
+設計候補:
 
-- innovation window 長: episode 全体 vs 直近 50-100 step
-- context encoder: small MLP / GRU / Transformer
-- network output: $beta$ そのもの / $beta$ への residual / per-step $K_f$ 直接
-- ReachFixed train → ReachRandom test の transfer benchmark を pre-commit
+- hardtanh / clipped sigmoid: $K_f$ を 0 に張り付かせる領域を持たせる
+- output clipping: logistic の出力を明示的に 0 近傍へ落とす
+- direct $K_f$ residual: $K=0$ baseline に対して、必要な field だけ correction を足す
+- mixture / switch model: prediction-only mode と reliability-weighted correction mode を離散的に切り替える
+- MLP / GRU context encoder: 30 parameter 線形 adapter を超える必要があるかを検証する appendix / follow-up
 
-これは Project 1 の論文 main scope の外だが、C3 の限界を直接解消する次の研究軸として明示。
+学習 signal は引き続き per-episode reaching outcome を SPSA / REINFORCE / ES のような black-box optimization で用いる(target K のラベルは依然として使わない)。ただし、次フェーズでは「context を入れる」だけでは不十分で、 *reliability を gain に写像する関数形そのもの* を研究対象にする。
 
 == Project 2: Bayesian integration
 
@@ -1968,7 +2312,7 @@ cortical command
 LTC / CfC は、連続時間・recurrent・入力依存時定数という点で、Project 3 の候補 forward model として自然である。Project 1 の two-layer adaptation(within-trial reliability + across-trial outcome)は、Project 3 の microcircuit module 間でも同じ構造的役割を果たすと想定: cerebellar forward model のシナプス可塑性 = within-trial dynamics、prefrontal / striatal level の outcome-based meta-learning = across-trial。
 
 #warn([
-TNNLS 投稿前に CfC/LTC PoC を始めると、Project 1 の論文主張がぶれやすい。まず Project 1 の投稿を完了し、その後に別ブランチ / 別 phase として Project 1.5(context-conditioned $beta$) → Project 2(Bayesian) → Project 3(cortico-cerebellar)の順で進める。
+TNNLS 投稿前に CfC/LTC PoC を始めると、Project 1 の論文主張がぶれやすい。まず Project 1 の投稿を完了し、その後に別ブランチ / 別 phase として Project 1.5(parameterisation ceiling を超える gain map) → Project 2(Bayesian) → Project 3(cortico-cerebellar)の順で進める。
 ])
 
 = 演習
@@ -1996,12 +2340,15 @@ default tests と MyoSuite smoke tests の両方を通す。
 
 == 演習 3: 図表を読み解く
 
-F_reliability_default / F_spsa_single / F_spsa_fullgrid を開き、以下を説明せよ。
+F_reliability_default / F_spsa_single / F_spsa_fullgrid / F_geometry_regression / F_fm_quality_shift / F_adapt_compare を開き、以下を説明せよ。
 
-- F_reliability_default で default reliability が K=0 を $23$-$29$ cm 下回る構造的理由は何か(forward model 強度と reliability の関係)
+- F_reliability_default で default reliability が K=0 を delay-0 で $35$ cm、 delay-18 で $22$ cm 下回る構造的理由は何か(forward model 強度と reliability の関係)
 - F_spsa_single の running mean が $K=0$ baseline 0.50 m に到達するのに、deployed eval は 0.56 m に留まる理由は何か(SPSA noise vs eval seed の関係)
 - F_spsa_single の bottom panel で qpos の $beta_0$ が一番低く、$beta_1$ が一番高い意味を解釈せよ(field-wise specialisation)
 - F_spsa_fullgrid で multi-cell SPSA が $K=0$ に届かない理由を構造的に述べよ(single global $beta$ の表現限界)
+- F_geometry_regression で reliability variance と forward-model error / bias のどちらが $Delta "outcome"$ を説明しているかを述べよ
+- F_fm_quality_shift で H=1 / H=4 / H=8 によって $K^*_("cl")$ geometry がどう変わるかを説明せよ
+- F_adapt_compare で context aggregation ceiling と parameterisation ceiling がどの row に現れているかを説明せよ
 - Appendix C(oracle-supervised)の $K^*_("ol")$ と $K^*_("cl")$ が乖離する条件は何か(forward model multi-step supervision との関係)
 
 == 演習 4: 新しい transfer test を設計する
@@ -2016,16 +2363,17 @@ ReachRandom transfer 以外の transfer 軸(controller 変更、forward model H 
 - default reliability vs SPSA-trained $beta$ vs $K=0$ の比較順序
 - Appendix に入れる最小図表
 
-== 演習 5: context-conditioned $beta$ の prototype を設計する
+== 演習 5: parameterisation ceiling を超える gain map を設計する
 
-C3 ceiling を超える next-step model を設計せよ。最低限決めるべきこと:
+C4 で残った delay-0 parameterisation ceiling を超える next-step model を設計せよ。最低限決めるべきこと:
 
-- $beta$ network の入力(sliding window 長、何の statistics か)
-- $beta$ network の出力構造($beta$ 直接 / residual / per-step $K_f$)
+- gain map の出力構造($beta$ 直接 / residual / per-step $K_f$ / hard switch)
+- $K_f -> 0$ をどう表現するか(hardtanh、clipping、direct residual など)
+- 入力に使う agent-available statistics(innovation mean / variance / autocorrelation / outcome history)
 - 学習 signal(per-episode outcome、step-wise reward など)
 - 最適化手法(SPSA / REINFORCE / ES / 微分可能 surrogate)
 - ReachFixed → ReachRandom transfer の評価設定
-- failure mode(over-fit、変動 high など)の事前予想
+- failure mode(over-fit、K=0 張り付き、変動 high など)の事前予想
 
 実装まで進めなくてよい。設計を 1-2 ページにまとめることが演習。
 
@@ -2042,10 +2390,17 @@ C3 ceiling を超える next-step model を設計せよ。最低限決めるべ�
 - `figures/F_reliability_default.{pdf,png}`
 - `figures/F_spsa_single.{pdf,png}`
 - `figures/F_spsa_fullgrid.{pdf,png}`
+- `figures/F_geometry_regression.{pdf,png}`
+- `figures/F_fm_quality_shift.{pdf,png}`
+- `figures/F_adapt_compare.{pdf,png}`
 - `figures/F2-F7.{pdf,png}`(Appendix C oracle-supervised 教材用)
 - `scripts/make_reframe_figures.py`(C1-C3 figure 再生成)
 - `scripts/diagnose_reliability_observer.py`(per-cell K_f dump)
 - `scripts/train_reliability_adaptive_v2.py`(SPSA outer loop)
+- `scripts/compute_fm_diagnostics.py`(forward-model error / bias diagnostics)
+- `scripts/rq1_geometry_regression.py`(Delta outcome 回帰)
+- `scripts/train_feature_conditioned_beta.py`(30 parameter feature-conditioned adapter)
+- `scripts/plot_rq3_adapt_compare.py`(two-ceiling figure)
 - `src/myoarm_fse/estimators/reliability_adaptive.py`
 
 == Obsidian 内
@@ -2069,13 +2424,14 @@ C3 ceiling を超える next-step model を設計せよ。最低限決めるべ�
 
 = 最後に
 
-この研究を遂行するうえで最も大切なのは、実験を増やすことではなく、次の4つを分け続けることである。
+この研究を遂行するうえで最も大切なのは、実験を増やすことではなく、次の5つを分け続けることである。
 
-#callout("4つの分離", [
+#callout("5つの分離", [
 1. *state estimation error* と *closed-loop task error* を分ける。
 2. *agent-available signals*(innovation history、per-episode outcome)と *non-agent-available oracle ラベル*(per-condition K-sweep の $K^*$)を分ける。
 3. *within-trial layer*(per-step reliability)と *across-trial layer*(episode outcome ベースの $beta$ 更新)を分ける。
-4. *SPSA loop convergence*(C2 で示した)と *parameterisation 表現能力*(C3 が拘束されている)を分ける。
+4. *context aggregation ceiling*(global $beta$ が context を見ない限界)と *parameterisation ceiling*(logistic map が sharp $K=0$ を表現できない限界)を分ける。
+5. *forward-model quality が作る gain geometry* と *sensory reliability が測る sensor quality* を分ける。
 ], color: green, fill: pale-green)
 
-この4つを分けて考えれば、Project 1 の実装結果は単なる controller engineering ではなく、forward prediction、innovation-based online reliability、outcome-based across-trial learning の三層構造を持つ生物学的にもっともらしい motor control framework の研究基盤になる。次の自然な拡張は、C3 の structural ceiling を超える *context-conditioned $beta$ network*(Project 1.5)と、それを Bayesian framework に embed する Project 2 である。
+この5つを分けて考えれば、Project 1 の実装結果は単なる controller engineering ではなく、forward prediction、innovation-based online reliability、outcome-based across-trial learning、context-conditioned gain adaptation の四層構造を持つ生物学的にもっともらしい motor control framework の研究基盤になる。次の自然な拡張は、残った parameterisation ceiling を超える gain map(Project 1.5)と、それを Bayesian framework に embed する Project 2 である。
