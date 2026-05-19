@@ -10,7 +10,7 @@ horizon: 600
 forward_model: runs/models/2026-05-11T11-47-34Z
 
 target_set: runs/targets/train.npz
-episodes_per_cell: 10
+episodes_per_cell: 200
 
 obs_compose: noisy_then_delayed
 

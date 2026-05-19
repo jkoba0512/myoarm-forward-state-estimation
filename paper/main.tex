@@ -753,7 +753,11 @@ where $M\!\in\!\mathbb{R}^{34\times 20}$ is the muscle-tendon
 moment-arm matrix (the dense form of MuJoCo's sparse
 \texttt{actuator\_moment} at the env's current pose), and
 $\alpha\!=\!5$ is a scalar action scale. Tuned gains:
-$K_p\!=\!30$, $K_d\!=\!3$.
+$K_p\!=\!30$, $K_d\!=\!3$. We use this joint-PD controller not as
+an optimal reaching policy but as a state-estimation-sensitive
+closed-loop probe: its role is to make differences in observer
+state estimates visible in task-level $\min$-tip error, not to
+maximise absolute reaching success.
 
 \emph{(iii)~Endpoint-error sensorimotor policy.}
 A task-level analogue of (ii) that skips the IK pre-step and maps the
