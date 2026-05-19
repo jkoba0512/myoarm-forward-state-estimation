@@ -1,0 +1,65 @@
+# Single-cell 200 ep deployed eval for the C2 SPSA-trained beta.
+# Beta is the C2 final from runs/reliability_adaptive_v2/2026-05-13T12-24-25Z.
+# Only the (sigma=none, d=18) cell is run -- this is C2's training cell.
+
+seed: 0
+
+env_id: myoArmReachFixed-v0
+horizon: 600
+
+forward_model: runs/models/2026-05-11T11-47-34Z
+
+target_set: runs/targets/train.npz
+episodes_per_cell: 200
+
+obs_compose: noisy_then_delayed
+
+noise_conditions:
+  none: { qpos: 0.0, qvel: 0.0, tip_pos: 0.0, reach_err: 0.0 }
+
+delay_grid: [18]
+
+estimators:
+  - name: K=0.0
+    kind: fixed
+    gain: 0.0
+  - name: K=1.0
+    kind: fixed
+    gain: 1.0
+  - name: reliability_adaptive_v2_c2_single
+    kind: reliability_adaptive
+    config:
+      alpha: 0.05
+      epsilon: 1.0e-6
+      var_init: 1.0
+      beta0:
+        qpos: -1.527
+        qvel: -0.182
+        act: -0.221
+        tip_pos: -0.347
+        reach_err: -0.038
+      beta1:
+        qpos: 0.892
+        qvel: 0.502
+        act: 0.327
+        tip_pos: 0.298
+        reach_err: -0.019
+
+controller:
+  name: joint_pd
+  Kp: 30.0
+  Kd: 3.0
+  action_scale: 5.0
+  ik_max_iter: 200
+  ik_tol: 0.01
+  ik_damping: 0.1
+
+sdn:
+  sigma: 0.0
+
+success_thresholds: [0.05, 0.10, 0.15]
+success_duration: 10
+skip_cold_start_steps_use_delay: true
+save_per_episode: true
+
+output_root: runs/closed_loop
