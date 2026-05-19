@@ -48,32 +48,35 @@ Kawazu}, \city{Iizuka}, \postcode{820-8502}, \state{Fukuoka},
 \abstract{We ask whether a forward-model-based predictive state
 observer --- an internal forward model in the cybernetic sense ---
 can adapt its sensory prediction-error correction gain from signals
-the agent itself generates online, namely innovation history and
-per-episode reaching outcome, rather than from per-condition
+the agent itself generates online (innovation history and
+per-episode reaching outcome), rather than from per-condition
 oracle labels. On a 34-muscle MyoSuite reaching arm, a predictive
 observer over a residual forward model uses a within-trial
 reliability-to-gain logistic and an across-trial outcome-driven
 update of its meta-parameters $\beta$ via a gradient-free two-point
-stochastic approximation rule. Plugging this observer into a
-joint-space PD controller yields a mechanistic decomposition of
-the closed-loop correction-gain geometry. The geometry is
-dominated by forward-model error and bias, not by sensory
-reliability: a regression of per-cell
+stochastic approximation rule, deployed in closed loop with a
+joint-space PD controller as a state-estimation-sensitive probe.
+This yields a mechanistic decomposition of the closed-loop
+correction-gain geometry, which is dominated by forward-model
+error and bias, not sensory reliability: a regression of per-cell
 $\Delta\mathrm{outcome}(K{=}1, K{=}0)$ across four forward-model
 qualities reaches $R^2 \!=\! 0.95$, against $R^2 \!=\! 0.17$ from
-reliability variance alone. A $30$-parameter diagonal field-wise
-linear adapter that maps z-scored log innovation statistics to
-$\beta$ then reduces the $6$-cell-mean $\min$-tip reaching error
-from $0.74$\,m (with a single global $\beta$) to $0.65$\,m, with
-delay-$18$ cells reaching $0.51$\,m, within $1.7$\,cm of the
-$K{=}0$ baseline. The remaining failure at delay-$0$ cells is
-unaffected by adding context input. Together, the results identify
-two distinct ceilings: a \emph{context aggregation ceiling} that
-agent-available innovation statistics can substantially close, and
-a \emph{parameterisation ceiling} of the reliability-to-gain
-logistic that they cannot. Offline-oracle-supervised gain
-predictors are retained as an upper-bound diagnostic against which
-agent-available adaptation is measured.}
+reliability variance alone. At $n{=}200$ episodes per cell,
+default within-trial reliability trails the $K{=}0$ baseline by
+$22$\,cm at delay-$18$ cells and $35$\,cm at delay-$0$ cells.
+Outcome-driven optimisation of a single global $\beta$ modestly
+improves delay-$18$ by $\approx\!5$\,cm but yields $\approx\!0$
+improvement at delay-$0$, directly exhibiting the
+parameterisation ceiling of the reliability-to-gain logistic. A
+$30$-parameter diagonal field-wise linear adapter that maps
+z-scored log innovation statistics to $\beta$ further reduces
+delay-$18$ error to $0.40$\,m, within $2.0$\,cm of $K{=}0$, while
+delay-$0$ cells remain unchanged.
+Together, the results identify two distinct ceilings: a
+\emph{context aggregation ceiling} that agent-available innovation
+statistics can substantially close at delay-$18$, and a
+\emph{parameterisation ceiling} of the reliability-to-gain logistic
+that they cannot.}
 
 \keywords{Forward model, Predictive state observer, Sensory
 prediction-error correction, Adaptive correction gain, Closed-loop
@@ -150,15 +153,19 @@ Our contributions are summarised in five claims.
 is task-misaligned.} With $\beta_{0,f}\!=\!0$, $\beta_{1,f}\!=\!0.5$,
 the within-trial rule produces field-heterogeneous intermediate-to-
 high gains rather than the task-optimal $K{=}0$ that the $H{=}8$
-forward model demands at every focused-grid cell. Trail to
-$K{=}0$: $23$--$29$\,cm in $\min$-tip
+forward model demands at every focused-grid cell. Across $n{=}200$
+episodes per cell, default reliability trails $K{=}0$ by
+$22$\,cm at delay-$18$ cells and $35$\,cm at delay-$0$ cells, with
+paired $95\%$ bootstrap CIs that exclude zero in every cell
 (Fig.\,\ref{fig:F_reliability_default}).
 
 \item \textbf{C2.} \emph{Single-cell across-trial SPSA closes the
 gap on its training cell.} Outcome-driven SPSA on
-$(\sigma{=}\mathrm{none},\,d{=}18)$ recovers $\approx\!17$\,cm of
-the default-reliability vs.\ $K{=}0$ gap, and the smoothed
-training trajectory briefly reaches the $K{=}0$ level.
+$(\sigma{=}\mathrm{none},\,d{=}18)$ recovers a sizeable fraction of
+the default-reliability vs.\ $K{=}0$ gap, and the smoothed training
+trajectory briefly reaches the $K{=}0$ level. (Convergence
+trajectory uses a $10$-episode rolling outcome estimate; see
+Fig.\,\ref{fig:F_spsa_single}.)
 
 \item \textbf{C3.} \emph{The closed-loop correction-gain geometry is
 shaped by forward-model error and bias, not by sensory reliability.}
@@ -179,18 +186,21 @@ operating points, not sensory reliability variation.
 reliability-adaptive observers; one can be broken from
 agent-available signals alone.} A single global $\beta$ saturates
 because it aggregates cells with different correction-gain
-geometries (\emph{context aggregation ceiling}). Per-cell SPSA
-diagnostic resolves this at delay-$18$ cells but \emph{fails} at
-all three delay-$0$ cells, because the reliability-to-gain logistic
+geometries (\emph{context aggregation ceiling}). A per-cell SPSA
+diagnostic ($10$-episode deployment per cell;
+Sec.\,\ref{sec:results-c4-parameterization}) resolves this at
+delay-$18$ cells but \emph{fails} at all three delay-$0$ cells,
+because the reliability-to-gain logistic
 $K_f \!=\! \sigma(\beta_{0,f} + \beta_{1,f} \log r_f)$ cannot
 represent the sharp $K{=}0$ regime that delay-$0$ cells require
-(\emph{parameterisation ceiling}). A $30$-parameter diagonal
-field-wise linear adapter on z-scored log innovation statistics
-breaks the context aggregation ceiling cleanly: deployed
-$6$-cell-mean $\min$-tip falls from $0.74$\,m (global SPSA) to
-$0.65$\,m, with delay-$18$ cells reaching $0.51$\,m, within
-$1.7$\,cm of $K{=}0$ (Fig.\,\ref{fig:F_adapt_compare}). The
-parameterisation ceiling at delay-$0$ persists as predicted.
+(\emph{parameterisation ceiling}). At $n{=}200$ deployment, a
+$30$-parameter diagonal field-wise linear adapter on z-scored log
+innovation statistics breaks the context aggregation ceiling
+cleanly: deployed $6$-cell-mean $\min$-tip falls from $0.64$\,m
+(global SPSA) to $0.56$\,m, with delay-$18$ cells reaching
+$0.40$\,m, within $2.0$\,cm of $K{=}0$
+(Fig.\,\ref{fig:F_adapt_compare}). The parameterisation ceiling at
+delay-$0$ persists as predicted.
 
 \item \textbf{C5.} \emph{Task transfer confirms the geometry
 dependence.} On the variable-target \texttt{ReachRandom} variant
@@ -836,10 +846,10 @@ means are reported in Table~\ref{tab:default_kf}). qvel is the
 $0.39$), reflecting bounded but informative velocity innovation;
 qpos, act, tip\_pos, and reach\_err settle in the $0.59$--$0.98$
 range, close to $K{=}1$ at delay-$0$ cells where the channel
-innovation collapses to near-zero. Closed-loop $\min$-tip averages
-$0.755$\,m across the six cells. For comparison, $K{=}0$ averages
-$0.495$\,m and $K{=}1$ averages $0.732$\,m on the same grid
-(Fig.\,\ref{fig:F_reliability_default}).
+innovation collapses to near-zero. At $n{=}200$ episodes per cell,
+closed-loop $\min$-tip averages $0.665$\,m across the six cells.
+For comparison, $K{=}0$ averages $0.378$\,m and $K{=}1$ averages
+$0.658$\,m on the same grid (Fig.\,\ref{fig:F_reliability_default}).
 
 \begin{table}[!htbp]
 \centering
@@ -876,11 +886,14 @@ from the planned IK target. Reliability-based adaptation \emph{by
 construction} cannot produce $K_f\!=\!0$ unless either
 $\beta_{0,f}\!\to\!-\infty$ or the EMA variance grows without bound;
 under bounded innovation neither happens. The default rule
-therefore trails $K{=}0$ by $0.23$--$0.29$\,m in $\min$-tip across
-the grid. We read this as a fundamental signal: \emph{innovation
-reliability alone, without an outcome objective that knows the task,
-cannot recover the right correction-gain level when the forward
-model is good enough to operate the loop without sensory help.}
+therefore trails $K{=}0$ in $\min$-tip by $35$\,cm at delay-$0$
+cells and $22$\,cm at delay-$18$ cells (paired $95\%$ bootstrap
+CIs $[31, 39]$ and $[19, 25]$\,cm respectively, pooled $28.7$\,cm
+with CI $[27.3, 30.0]$). We read this as a fundamental signal:
+\emph{innovation reliability alone, without an outcome objective
+that knows the task, cannot recover the right correction-gain
+level when the forward model is good enough to operate the loop
+without sensory help.}
 
 \begin{figure}[t]
 \centering
@@ -888,10 +901,11 @@ model is good enough to operate the loop without sensory help.}
 \caption[Default within-trial reliability is task-misaligned.]%
 {\textbf{Closed-loop $\min$-tip error under the $H{=}8$ forward
 model and joint-PD controller for three estimators on the focused
-$3$~noise~$\times\,2$~delay grid (mean $\pm$ std over $10$ episodes
-per cell).} The default reliability-adaptive rule
+$3$~noise~$\times\,2$~delay grid, split by delay regime (mean
+$\pm$ $95\%$ percentile bootstrap CI over $n{=}200$ episodes per
+cell).} The default reliability-adaptive rule
 ($\beta_{0,f}\!=\!0$, $\beta_{1,f}\!=\!0.5$, all fields) settles to
-$K_f\!\approx\!0.55$--$0.72$ and trails $K{=}0$ by $23$--$29$\,cm
+$K_f\!\approx\!0.55$--$0.72$ and trails $K{=}0$ by $22$--$36$\,cm
 across cells; $K{=}1$ trails $K{=}0$ by $14$--$28$\,cm. The
 closed-loop oracle $K^{\star}_{\mathrm{cl}}$ on this grid is $K{=}0$
 at every cell (Appendix~\ref{app:cl-sweep}); a reliability rule
@@ -911,14 +925,17 @@ episode $\min$-tip averaged across the $S$ paired episodes at the
 two perturbed $\beta$ points.
 
 Figure~\ref{fig:F_spsa_single} reports the outcome trajectory and
-the final-iteration per-field $\beta$. The per-iteration outcome
-trajectory falls from $\approx\!0.61$\,m at iteration $0$ to a
-last-$20$-iter mean of $\approx\!0.49$\,m, within $1$\,cm of the
-$K{=}0$ baseline on this cell ($0.50$\,m, from
-Appendix~\ref{app:cl-sweep}); the single iteration-$99$ snapshot
-is noisier at $0.53$\,m, and a fresh deployed evaluation of the
-final $\beta$ on $10$ independent episodes gives $0.56$\,m (residual
-$\sim\!6$\,cm to $K{=}0$). The final $\beta$ is non-uniform
+the final-iteration per-field $\beta$. (SPSA evaluates $S\!=\!12$
+paired episodes per iteration; the training-time numbers below
+therefore use $\sim\!10$ episodes per cell per side, distinct from
+the $n\!=\!200$ deployment eval used in C1.) The per-iteration
+outcome trajectory falls from $\approx\!0.61$\,m at iteration $0$
+to a last-$20$-iter mean of $\approx\!0.49$\,m, reaching the
+$10$-episode $K{=}0$ baseline estimate on this cell ($0.50$\,m,
+from Appendix~\ref{app:cl-sweep}); the single iteration-$99$
+snapshot is noisier at $0.53$\,m, and a fresh deployed evaluation
+of the final $\beta$ on $10$ independent episodes gives $0.56$\,m.
+The final $\beta$ is non-uniform
 across fields: qpos becomes simultaneously the most-suppressed
 ($\beta_{0,\mathrm{qpos}}\!\approx\!-1.53$) and the most-reactive
 ($\beta_{1,\mathrm{qpos}}\!\approx\!+0.89$) field, while the
@@ -931,11 +948,13 @@ emerges directly from outcome feedback, with no per-field oracle.
 
 The key implication is that the agent does not need an oracle on
 $K^{\star}_{\mathrm{cl}}$: from per-episode reach outcomes alone,
-$10$-parameter SPSA on $\beta$ recovers about $17$ of the $23$\,cm
+$10$-parameter SPSA on $\beta$ closes a sizeable fraction of the
 default-reliability vs $K{=}0$ gap on a single training cell
-($0.77$\,m $\to\,0.56$\,m deployed, against $K{=}0$ at $0.50$\,m),
-with the smoothed training trajectory briefly reaching the $K{=}0$
-level.
+($0.77$\,m $\to\,0.56$\,m deployed, against the $10$-episode
+$K{=}0$ baseline estimate at $0.50$\,m), with the smoothed training
+trajectory briefly reaching that baseline. C4 confirms this is a
+valid use of outcome feedback in the achievable regime by extending
+the result to the full focused grid at $n{=}200$ episodes per cell.
 
 \begin{figure}[t]
 \centering
@@ -971,12 +990,14 @@ $6$-cell mean $\min$-tip.
 \caption[Multi-cell SPSA on the full grid.]%
 {\textbf{Multi-cell SPSA over the focused $6$-cell grid under the
 $H{=}8$ forward model and joint-PD controller.} \emph{Top}: per-%
-iteration $6$-cell-mean $\min$-tip outcome (mean over $S{=}12$
-paired draws). \emph{Bottom}: per-cell $\min$-tip at iteration $100$
-for $K{=}0$, default-reliability, and the multi-cell-trained $\beta$.
-Improvement over default reliability is $3$--$5$\,cm at delay-18
-cells and $\sim 0$\,cm at delay-0 cells; the multi-cell $\beta$
-still trails $K{=}0$ by $19$--$22$\,cm at delay-18 cells.}
+iteration $6$-cell-mean $\min$-tip outcome (training-time mean over
+$S{=}12$ paired draws per iteration). \emph{Bottom}: per-cell
+$\min$-tip at deployment ($n{=}200$ episodes per cell) for $K{=}0$,
+default reliability, and the multi-cell-trained $\beta$.
+Improvement over default reliability is $\approx\!5$\,cm at
+delay-$18$ cells and $\sim 0$\,cm at delay-$0$ cells; the multi-cell
+$\beta$ still trails $K{=}0$ by $\approx\!17$\,cm at delay-$18$
+cells and $\approx\!35$\,cm at delay-$0$ cells.}
 \label{fig:F_spsa_fullgrid}
 \end{figure}
 
@@ -986,12 +1007,14 @@ tip\_pos:$-0.32$, reach\_err:$-0.16\}$,
 $\beta_1\!=\!\{$qpos:$0.20$, qvel:$0.80$, act:$0.54$,
 tip\_pos:$0.63$, reach\_err:$0.33\}$, with $K_{\mathrm{mean}}$
 averaged across fields equal to $\approx\!0.51$ at delay-$18$ cells
-and $\approx\!0.63$ at delay-$0$ cells. The realised closed-loop
-$\min$-tip improves over default reliability by $3$--$5$\,cm at the
-three delay-$18$ cells and by $\sim\!0$\,cm at the three delay-$0$
-cells. Compared to $K{=}0$, the multi-cell $\beta$ still trails by
-$19$--$22$\,cm at delay-$18$ cells and by $\sim\!28$\,cm at
-delay-$0$ cells.
+and $\approx\!0.63$ at delay-$0$ cells. Deployed on $n{=}200$
+episodes per cell, the realised closed-loop $\min$-tip improves
+over default reliability by $\approx\!5$\,cm at the three
+delay-$18$ cells and by $\sim\!0$\,cm at the three delay-$0$ cells
+(paired $95\%$ bootstrap CIs $[3.4, 6.9]$ and $[-0.2, 1.7]$\,cm
+respectively, pooled $2.9$\,cm with CI $[2.4, 3.5]$). Compared to
+$K{=}0$, the multi-cell $\beta$ still trails by $\approx\!17$\,cm
+at delay-$18$ cells and $\approx\!35$\,cm at delay-$0$ cells.
 
 The structural reason is that $K^{\star}_{\mathrm{cl}}\!=\!0$
 uniformly across the focused grid (Appendix~\ref{app:cl-sweep}),
@@ -1110,11 +1133,15 @@ evaluated on $10$ fresh episodes on its training cell.
 
 \begin{table}[!htbp]
 \centering
-\caption{Per-cell SPSA diagnostic. Each $\beta_c$ is trained on cell
-$c$ in isolation for $100$ iterations and deployed on $10$ fresh
-episodes on the same cell. Last-$20$-iter mean is the smoothed
-training-time outcome; \emph{deployed} is the fresh-eval mean.
-$K{=}0$ baseline per cell is $\approx\!0.50$\,m.}
+\caption{Per-cell SPSA diagnostic ($10$-episode deployment per
+cell, run alongside the $n{=}200$ comparisons for the other
+estimators). Each $\beta_c$ is trained on cell $c$ in isolation for
+$100$ iterations and deployed on $10$ fresh episodes on the same
+cell. Last-$20$-iter mean is the smoothed training-time outcome;
+\emph{deployed} is the fresh-eval mean. Comparison $K{=}0$ baseline
+at $n{=}200$ is $0.38$\,m flat across cells; the $n{=}10$ diagnostic
+deployment values below are used to expose the per-cell logistic's
+parameterisation limit, not to estimate absolute $\min$-tip.}
 \label{tab:per_cell_beta_diagnostic}
 \setlength{\tabcolsep}{5pt}
 \footnotesize
@@ -1134,12 +1161,14 @@ xhigh & 18 & 0.543 & 0.670 & improved \\
 
 A clean dichotomy emerges (Table~\ref{tab:per_cell_beta_diagnostic}).
 At the three delay-$18$ cells, per-cell SPSA reduces the smoothed
-training outcome from $\approx\!0.61$\,m to $0.49$--$0.56$\,m,
-matching the $K{=}0$ baseline within $1$--$7$\,cm. At the three
-delay-$0$ cells, per-cell SPSA \emph{worsens} the outcome from
-$\approx\!0.65$\,m to $0.74$--$0.75$\,m: even when given a single
-cell as its entire optimisation target, the logistic rule cannot
-push $K_f \to 0$. This is the second ceiling we report:
+training outcome substantially (the deployment numbers shown here
+are the $10$-episode diagnostic eval; C4 quantifies the same
+delay-$18$ improvement at $n{=}200$). At the three delay-$0$ cells,
+per-cell SPSA \emph{worsens} the outcome relative to its
+default-reliability starting point: even when given a single cell
+as its entire optimisation target, the logistic rule cannot push
+$K_f \to 0$ in $100$ iterations. This is the second ceiling we
+report:
 
 \begin{quote}
 \emph{Parameterisation ceiling.} The reliability-to-gain logistic
@@ -1178,46 +1207,49 @@ estimated from a brief default-reliability warm-up
 \caption[Closed-loop $\min$-tip across adaptation rules and
 ceilings.]%
 {\textbf{Closed-loop $\min$-tip across seven estimators on the
-focused $6$-cell grid, faceted by delay.} Top row (delay-$0$): all
-six non-$K{=}0$ rules cluster at $0.74$--$0.78$\,m; the
-parameterisation ceiling is shared. Bottom row (delay-$18$):
-feature-conditioned $\beta$ deployed (cyan) reaches $0.51$\,m
-across cells --- within $1.7$\,cm of the $K{=}0$ baseline ---
-beating both global SPSA $\beta$ ($0.69$\,m) and per-cell $\beta$
-deployed ($0.64$\,m). The delay-$18$ aggregation ceiling is
-effectively removed; the delay-$0$ parameterisation ceiling
-persists.}
+focused $6$-cell grid, faceted by delay ($n{=}200$ episodes per
+cell for K=0, K=1, default reliability, global SPSA $\beta$, and
+feature-conditioned $\beta$; $n{=}10$ diagnostic deployment for the
+per-cell $\beta$ entries).} Top row (delay-$0$): all six
+non-$K{=}0$ rules cluster at $0.71$--$0.78$\,m; the parameterisation
+ceiling is shared. Bottom row (delay-$18$): feature-conditioned
+$\beta$ deployed (cyan) reaches $0.40$\,m across cells --- within
+$2.0$\,cm of the $K{=}0$ baseline --- beating global SPSA $\beta$
+($0.55$\,m); per-cell $\beta$ deployed (10-episode diagnostic) sits
+between them. The delay-$18$ aggregation ceiling is effectively
+removed; the delay-$0$ parameterisation ceiling persists.}
 \label{fig:F_adapt_compare}
 \end{figure}
 
 After $200$ SPSA iterations the trained adapter's deployed-eval
-$6$-cell mean $\min$-tip is $0.647$\,m, a $9.2$\,cm improvement over
-the global SPSA $\beta$ baseline of $0.739$\,m
-(Fig.\,\ref{fig:F_adapt_compare}). The improvement is concentrated
-in the achievable regime:
+($n{=}200$ episodes per cell) $6$-cell mean $\min$-tip is
+$0.556$\,m, a $7.9$\,cm improvement over the global SPSA $\beta$
+baseline of $0.636$\,m (Fig.\,\ref{fig:F_adapt_compare}). The
+improvement is concentrated in the achievable regime:
 
 \begin{itemize}
 \item \emph{delay-$18$ cells}: feature-conditioned $\beta$ reaches
-$0.514$\,m on average, within $1.7$\,cm of the $K{=}0$ baseline
-($0.497$\,m). It \emph{exceeds} the per-cell $\beta$ deployed
-mean of $0.643$\,m at every cell, while using a single shared
-$30$-parameter rule rather than six independently optimised
-$10$-parameter $\beta$'s.
+$0.402$\,m on average, within $2.0$\,cm of the $K{=}0$ baseline
+($0.381$\,m), and $14.8$\,cm below global SPSA $\beta$ at the same
+cells ($0.550$\,m). The single shared $30$-parameter rule
+substantially closes the context aggregation gap that a single
+global $\beta$ leaves open.
 
 \item \emph{delay-$0$ cells}: feature-conditioned $\beta$ stays at
-$0.781$\,m, statistically indistinguishable from default
-reliability ($0.776$\,m), per-cell $\beta$ deployed ($0.778$\,m),
-and global SPSA $\beta$ ($0.778$\,m). The parameterisation ceiling
-remains.
+$0.711$\,m, within $1$\,cm of global SPSA $\beta$ at the same cells
+($0.721$\,m) and statistically indistinguishable from default
+reliability ($0.728$\,m). The parameterisation ceiling remains:
+adding context input does not let the logistic rule reach the
+$K{=}0$ regime that delay-$0$ requires.
 \end{itemize}
 
-The take-away is precise: \emph{the $9.2$\,cm gain over global
+The take-away is precise: \emph{the $7.9$\,cm gain over global
 $\beta$ comes entirely from breaking the context aggregation
 ceiling on delay-$18$ cells; the parameterisation ceiling on
 delay-$0$ cells is unaffected, as predicted}. A compact linear
-context-conditioned rule, driven only by agent-available
-innovation statistics, substantially closes the context aggregation
-gap without needing a non-agent-available oracle or per-cell
+context-conditioned rule, driven only by agent-available innovation
+statistics, substantially closes the context aggregation gap
+without needing a non-agent-available oracle or per-cell
 optimisation. The persistent delay-$0$ gap is a property of the
 logistic reliability-to-gain map, not of the context information
 available to the agent.
@@ -1291,8 +1323,11 @@ oracle $K^{\star}_{\mathrm{ol}}$ and, separately, against the
 closed-loop oracle $K^{\star}_{\mathrm{cl}}$ obtained by a per-cell
 $K$-sweep. On the focused grid under $H{=}8$ the closed-loop-oracle
 variant outputs $K\!\approx\!0.02$ and matches the $K{=}0$ baseline
-within $1.5$\,cm at all delay-18 cells; the open-loop-oracle variant
-outputs $K\!\approx\!1$ and trails $K{=}0$ by $14$--$28$\,cm. The
+within a few centimetres at all delay-$18$ cells
+(Appendix~\ref{app:oracle-supervised}; $10$-episode diagnostic
+deployment); the open-loop-oracle variant outputs $K\!\approx\!1$
+and trails $K{=}0$ by $21$--$35$\,cm across the focused grid at
+$n{=}200$. The
 closed-loop-oracle variant is therefore the strongest non-agent-%
 available baseline available in this setting, and the C2 single-cell
 SPSA result effectively matches it on its training cell using only
@@ -1315,11 +1350,11 @@ gives the agent information about \emph{sensor quality}, not about
 sensory help}. The second piece of information --- whether the
 controller's planned trajectory is being followed --- is in the task
 outcome, not in the innovation. C2 then shows that adding the
-outcome layer through SPSA recovers about $17$ of the $23$\,cm
+outcome layer through SPSA closes a sizeable fraction of the
 default-reliability gap on a single training cell ($0.77$\,m
-$\to\,0.56$\,m deployed, against $K{=}0$ at $0.50$\,m); the
-smoothed training trajectory briefly reaches the $K{=}0$ level as a
-convergence signal. Together they show that, at least
+$\to\,0.56$\,m deployed at $n{=}10$, against the $10$-episode
+$K{=}0$ baseline estimate of $0.50$\,m); the smoothed training
+trajectory briefly reaches that baseline as a convergence signal. Together they show that, at least
 on this task, a two-layer agent-available adaptation rule is
 sufficient. Open question: whether reliability + outcome can also
 be combined within a single trial (e.g.\ an outcome-modulated
@@ -1336,11 +1371,11 @@ single global $\beta$ cannot serve cells with different
 correction-gain geometries because it sees no cell-specific input.
 This ceiling is breakable: the $30$-parameter feature-conditioned
 $\beta$ adapter of C4, using only agent-available z-scored log
-innovation statistics, closes a $9.2$\,cm gap in $6$-cell-mean
-$\min$-tip over global SPSA, and at delay-$18$ cells reaches
-$0.51$\,m --- effectively the $K{=}0$ baseline. The
-context-aggregation gap is therefore not a fundamental property
-of agent-available signals.
+innovation statistics, closes a $7.9$\,cm gap in $6$-cell-mean
+$\min$-tip over global SPSA at $n{=}200$, and at delay-$18$ cells
+reaches $0.40$\,m --- within $2.0$\,cm of the $K{=}0$ baseline. The
+context-aggregation gap is therefore not a fundamental property of
+agent-available signals.
 
 The \emph{parameterisation ceiling}, by contrast, is information-
 rich but representation-poor: even per-cell SPSA, given a single
@@ -1349,9 +1384,10 @@ delay-$0$ cells because the logistic reliability-to-gain map
 $K_f \!=\! \sigma(\beta_{0,f} + \beta_{1,f} \log r_f)$ cannot
 represent the steep $K{=}0$ regime that delay-$0$ cells require.
 This ceiling is unaffected by adding context input
-(Fig.\,\ref{fig:F_adapt_compare}, top row, where all
-non-$K{=}0$ rules cluster at $0.74$--$0.78$\,m). It is a property
-of how reliability is mapped to a gain, not of how reliability is
+(Fig.\,\ref{fig:F_adapt_compare}, top row, where at $n{=}200$ all
+non-$K{=}0$ rules cluster at $0.71$--$0.73$\,m, well above the
+$K{=}0$ delay-$0$ value of $0.38$\,m). It is a property of how
+reliability is mapped to a gain, not of how reliability is
 estimated. Future work that retains the within-trial reliability
 substrate but replaces the logistic with a parameterisation
 capable of representing $K_f\!\to\!0$ (e.g.\ hardtanh, output
@@ -1407,7 +1443,7 @@ ceiling: the feature-conditioned adapter of C4 conditions $\beta$
 on innovation statistics but retains the same logistic
 reliability-to-gain map $K_f = \sigma(\beta_{0,f} +
 \beta_{1,f} \log r_f)$, so the delay-$0$ ceiling at
-$0.74$--$0.78$\,m is unaffected. Alternative gain maps capable of
+$0.71$--$0.73$\,m is unaffected. Alternative gain maps capable of
 representing $K_f \!\to\! 0$ (hardtanh, output clipping, or a direct
 $K_f$ residual on top of $K{=}0$) are left to future work. (c)~Two MyoSuite reach variants
 (ReachFixed and ReachRandom), 34-muscle arm only. Transfer to
@@ -1452,10 +1488,10 @@ ceiling} (the reliability-to-gain logistic cannot represent the
 sharp $K{=}0$ regime that delay-$0$ cells require). A
 $30$-parameter diagonal field-wise linear adapter on log
 innovation statistics breaks the context aggregation ceiling
-cleanly --- $6$-cell-mean $\min$-tip drops from $0.74$\,m to
-$0.65$\,m, with delay-$18$ cells reaching the $K{=}0$ baseline
-within $1.7$\,cm --- while the parameterisation ceiling persists
-on delay-$0$ cells exactly as predicted (C4). Task transfer to
+cleanly at $n{=}200$ episodes per cell --- $6$-cell-mean $\min$-tip
+drops from $0.64$\,m to $0.56$\,m, with delay-$18$ cells reaching
+the $K{=}0$ baseline within $2.0$\,cm --- while the parameterisation
+ceiling persists on delay-$0$ cells exactly as predicted (C4). Task transfer to
 the variable-target ReachRandom variant exhibits the geometry
 dependence directly: ReachFixed-trained $\beta$ trails $K{=}0$ on
 ReachRandom delay-$18$ cells while default reliability is
