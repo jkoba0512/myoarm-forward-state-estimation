@@ -1,0 +1,36 @@
+# R3 reachable-target version of configs/episodes/default.yaml.
+#
+# Identical hyperparameters to default.yaml (random excitation,
+# mean=0.5 sigma=0.2, no SDN, no obs noise, no delay, master_seed=0)
+# but the target set is swapped to the R3 reachable_train split
+# (IK final_error <= 1 cm filtered, n=200 reachable targets generated
+# 2026-05-21 via scripts/generate_reachable_targets.py with
+# seed_offset=30000).
+#
+# n_episodes is set to 50 (the per-batch size used to assemble the
+# original 51k-transition expanded.npz; see Codex R3 Stage A
+# decision (e), 2026-05-21).
+
+env_id: myoArmReachFixed-v0
+target_set: runs/targets_reachable/2026-05-21T09-13-52Z/reachable_train.npz
+
+controller:
+  name: random
+  mean: 0.5
+  sigma: 0.2
+
+master_seed: 0
+
+sdn:
+  sigma: 0.0
+
+obs_noise:
+  sigma: {}
+
+obs_delay_steps: 0
+obs_compose: noisy_then_delayed
+
+max_steps: 600
+n_episodes: 50
+
+output_root: runs/episodes

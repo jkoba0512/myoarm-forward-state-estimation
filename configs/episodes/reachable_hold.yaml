@@ -1,0 +1,29 @@
+# R3 reachable-target version of configs/episodes/hold.yaml.
+#
+# Identical to hold.yaml (silent muscles, excitation=0.0, no SDN,
+# no obs noise, no delay, master_seed=0) but the target set is the
+# R3 reachable_train split (see reachable_default.yaml header for
+# generation provenance).
+
+env_id: myoArmReachFixed-v0
+target_set: runs/targets_reachable/2026-05-21T09-13-52Z/reachable_train.npz
+
+controller:
+  name: hold
+  value: 0.0
+
+master_seed: 0
+
+sdn:
+  sigma: 0.0
+
+obs_noise:
+  sigma: {}
+
+obs_delay_steps: 0
+obs_compose: noisy_then_delayed
+
+max_steps: 600
+n_episodes: 50
+
+output_root: runs/episodes

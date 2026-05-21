@@ -1,0 +1,33 @@
+# R3 H=1 (single-step) residual MLP on the reachable-target dataset.
+#
+# Identical architecture and hyperparameters to mlp_expanded.yaml; only
+# the training data path is swapped to expanded_reachable.npz (built
+# from R3 Stage A.2 reachable_default / reachable_hold /
+# reachable_lowamp_random episode batches, IK-filter threshold 0.01 m).
+#
+# Single seed (=0) for the R3 first pass per Codex decision (j).
+
+seed: 0
+
+architecture:
+  hidden_dims: [256, 256]
+
+train:
+  optimizer: adam
+  lr: 1.0e-3
+  weight_decay: 0.0
+  batch_size: 256
+  epochs: 200
+  early_stopping_patience: 20
+  early_stopping_min_delta: 0.0
+  val_step: 5
+
+data:
+  dataset_paths:
+    - runs/datasets/expanded_reachable.npz
+
+eval:
+  rollout_horizons: [1, 10, 50]
+
+output:
+  output_root: runs/models

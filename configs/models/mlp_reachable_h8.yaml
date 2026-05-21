@@ -1,0 +1,31 @@
+# R3 H=8 (8-step rollout) residual MLP on the reachable-target dataset.
+#
+# Main R3 forward model. Identical to mlp_expanded_multistep8.yaml
+# except for the swapped data path (see mlp_reachable_h1.yaml header
+# for provenance).
+
+seed: 0
+
+architecture:
+  hidden_dims: [256, 256]
+
+train:
+  optimizer: adam
+  lr: 1.0e-3
+  weight_decay: 0.0
+  batch_size: 256
+  epochs: 200
+  early_stopping_patience: 20
+  early_stopping_min_delta: 0.0
+  val_step: 5
+  multi_step: 8
+
+data:
+  dataset_paths:
+    - runs/datasets/expanded_reachable.npz
+
+eval:
+  rollout_horizons: [1, 10, 50]
+
+output:
+  output_root: runs/models
