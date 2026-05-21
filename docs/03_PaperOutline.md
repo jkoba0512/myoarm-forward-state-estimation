@@ -6,10 +6,10 @@
 
 ## 中心メッセージ (v3、Phase C 反映後)
 
-> **Closed-loop reaching benefits from forward-model based state estimation, and the optimal estimator depends on forward-model accuracy AND on the oracle used to train any learned gain. (i) With single-step-supervised model, a learned condition-level Kalman gain trained on the open-loop estimation oracle beats observation-only by 8.6 cm in the (low noise, large delay) regime. (ii) With K-step rollout supervision (K=4, K=8) the forward model becomes accurate enough that prediction-only (K=0) globally wins in closed loop by 12-24 cm — a paradigm shift from "blend" to "trust the model". (iii) The open-loop oracle that Stage A was trained on no longer matches the closed-loop optimum at this stage, so the predictor outputs K≈0.4-1.0 instead of K=0. (iv) Redefining the oracle in terms of closed-loop task error produces a predictor that matches the K=0 baseline at delay≥18 cells within 1.5 cm and closes 40-60% of the gap at delay=0 cells, with no architectural changes — demonstrating that the right Kalman gain depends not only on the regime but on what objective the predictor is trained against.**
+> **Closed-loop reaching benefits from a forward-model-based predictive state observer, and the optimal sensory prediction-error correction gain depends on forward-model accuracy AND on the oracle used to train any learned gain. (i) With a single-step-supervised model, a learned condition-level correction gain trained on the open-loop estimation oracle beats observation-only by 8.6 cm in the (low noise, large delay) regime. (ii) With H-step rollout supervision (H=4, H=8) the forward model becomes accurate enough that prediction-only (K=0) globally wins in closed loop by 12-24 cm — a paradigm shift from "blend with sensory feedback" to "trust the forward model". (iii) The open-loop oracle that Stage A was trained on no longer matches the closed-loop optimum at this stage, so the predictor outputs K≈0.4-1.0 instead of K=0. (iv) Redefining the oracle in terms of closed-loop task error produces a predictor that matches the K=0 baseline at delay≥18 cells within 1.5 cm and closes 40-60% of the gap at delay=0 cells, with no architectural changes — demonstrating that the right correction gain depends not only on the regime but on what objective the predictor is trained against.**
 
 研究問い (Project 1):
-> myoArm reaching において、forward prediction と Kalman-like state estimator は、
+> myoArm reaching において、forward prediction と sensory prediction-error correction を用いた predictive state observer は、
 > sensory delay・observation noise・signal-dependent motor noise 下の制御を改善するか。
 
 答え (二段で構成):
@@ -106,7 +106,7 @@ R5 で観測した paradigm shift gap (open-loop oracle で訓練した learned 
 
 estimator design は **controller と oracle の co-optimization** が必要。同じ predictor architecture / 同じ訓練 pipeline でも、oracle 定義一つで予測 K が 0.5-0.7 動く。論文上の position:
 
-> "An estimator trained on open-loop oracle labels is not necessarily optimal in closed-loop deployment; the two objectives can diverge even on the same task. We show that redefining the oracle via closed-loop K-sweep resolves the gap with no architectural changes, suggesting that future work on learned Kalman gains should specify the oracle target explicitly."
+> "An estimator trained on open-loop oracle labels is not necessarily optimal in closed-loop deployment; the two objectives can diverge even on the same task. We show that redefining the oracle via closed-loop K-sweep resolves the gap with no architectural changes, suggesting that future work on learned sensory prediction-error correction gains should specify the oracle target explicitly."
 
 #### R5 supplementary: K=8 で paradigm shift が monotonic に深化
 
@@ -145,13 +145,13 @@ xhigh, d=18   0.531   0.653    0.665
 
 ### F1: System overview (block diagram)
 
-forward model + Kalman-like estimator + observation pipeline (noisy / delayed) + controller の
+forward model + predictive state observer + observation pipeline (noisy / delayed) + controller の
 relationship を block diagram で示す。各層で扱う物理量 (true state / noisy obs / x_est / u) を明記。
 
 **Caption**:
 "Overview of the myoArm forward state estimation pipeline. The forward model (residual MLP)
-maintains a state prediction; the Kalman-like estimator combines it with delayed/noisy observations
-via gain K; the controller (joint-space PD or behaviour-cloned) consumes the estimated state.
+maintains a state prediction; the predictive state observer corrects that prediction using delayed/noisy
+sensory prediction error via correction gain K; the controller (joint-space PD or behaviour-cloned) consumes the estimated state.
 ``true_state`` is used only for evaluation (oracle), never inside the closed loop."
 
 ### F2: Stress oracle K heatmap (delay × noise) — OLD vs NEW
@@ -160,7 +160,7 @@ via gain K; the controller (joint-space PD or behaviour-cloned) consumes the est
 NEW では delay=6/18/36 にも blending 領域が出現することを直接比較。
 
 **Caption**:
-"Oracle Kalman gain as a function of observation delay and noise level (mean over 3 controllers).
+"Oracle sensory prediction-error correction gain as a function of observation delay and noise level (mean over 3 controllers).
 **Top**: single-step-supervised forward model. At zero delay the optimal K decreases monotonically from
 1.0 (no noise) to 0.25 (xhigh noise). At delay ≥ 18 steps, the optimal K is uniformly 1.0 — forward-
 model rollout error compounds faster than observation noise grows.
@@ -185,7 +185,7 @@ Phase 2 D MVP の 6 cells × (learned − K=1.0) Δ final_tip / Δ min_tip を 2
 (noise=none, delay=18) が dark blue (−8.6 cm)、他は近 0 を示す。
 
 **Caption**:
-"Closed-loop reaching improvement from learned Kalman gain vs K=1.0 baseline, under
+"Closed-loop reaching improvement from learned correction gain vs K=1.0 baseline, under
 joint-space PD + IK controller. Estimator quality differentiation emerges in the (noise=none,
 delay=18) cell with a 8.6 cm reduction in final tip-to-target error. Other cells show
 sub-centimetre differences."
@@ -218,7 +218,7 @@ at d=18 (0.66 → 0.70 m) as forward model grows stronger.
 predictor now outputs K ≈ 0.02 (vs ≈ 0.7-1.0 from the open-loop oracle), and **the learned bar matches
 the K=0 baseline at the three delay=18 cells**, closing 40-60% of the gap that survived at delay=0.
 The figure visualises that *both* forward-model accuracy and oracle definition shape what the optimal
-closed-loop Kalman gain is."
+closed-loop sensory prediction-error correction gain is."
 
 ### F6: Phase 4 BC trade-off scatter
 
@@ -238,7 +238,7 @@ in the D regime."
 ```
 3.1 Forward-model + state estimator design
     - residual MLP architecture (Phase 1)
-    - fixed-lag Kalman with delay handling (Phase 3.1)
+    - fixed-lag predictive state observer with delay handling (Phase 3.1)
     - improved dataset cycle (3.6k → 51k transitions, h=50 MSE 10.6 → 0.052)
 
 3.2 Where blending matters (Stress eval, F2 + F3)
@@ -301,7 +301,7 @@ in the D regime."
 4. **Paradigm shift with long-horizon supervision (新)**: K=4 multi-step rollout
    loss simultaneously widens the open-loop K<1 regime *and* drives the
    closed-loop optimum to K=0. Open-loop estimation accuracy and closed-loop
-   task performance do not co-optimize the same Kalman gain — a structural
+   task performance do not co-optimize the same correction gain — a structural
    misalignment that the open-loop oracle hides.
 5. **Implication for adaptive gain estimators**: Stage A trained on
    open-loop oracle outputs K≈1 at delay≥6 even when closed-loop optimum is
@@ -312,9 +312,9 @@ in the D regime."
    training pipeline; redefining only the K* labels (open-loop estimation
    error → closed-loop task error) moves the predictor's output by 0.5-0.7
    and closes 40-60% of the closed-loop gap. This suggests that future
-   learned-Kalman-gain work should specify the oracle target explicitly,
-   and that the implicit "open-loop accuracy" choice common in Kalman
-   filter literature can underperform when control is downstream.
+   learned correction-gain work should specify the oracle target explicitly,
+   and that the implicit "open-loop accuracy" choice can underperform when
+   control is downstream.
 
 ## Future work セクション
 
