@@ -159,13 +159,14 @@ $22$\,cm at delay-$18$ cells and $35$\,cm at delay-$0$ cells, with
 paired $95\%$ bootstrap CIs that exclude zero in every cell
 (Fig.\,\ref{fig:F_reliability_default}).
 
-\item \textbf{C2.} \emph{Single-cell across-trial SPSA closes the
-gap on its training cell.} Outcome-driven SPSA on
-$(\sigma{=}\mathrm{none},\,d{=}18)$ recovers a sizeable fraction of
-the default-reliability vs.\ $K{=}0$ gap, and the smoothed training
-trajectory briefly reaches the $K{=}0$ level. (Convergence
-trajectory uses a $10$-episode rolling outcome estimate; see
-Fig.\,\ref{fig:F_spsa_single}.)
+\item \textbf{C2.} \emph{Single-cell across-trial SPSA closes most
+of the gap on its training cell.} Outcome-driven SPSA on
+$(\sigma{=}\mathrm{none},\,d{=}18)$ closes $\sim\!62\%$ of the
+default-reliability vs.\ $K{=}0$ gap at $n{=}200$ deployment
+(residual $\sim\!9$\,cm to $K{=}0$), with the smoothed training
+trajectory reaching the original $10$-episode $K{=}0$ baseline
+estimate. (Convergence trajectory uses a $10$-episode rolling
+outcome estimate; see Fig.\,\ref{fig:F_spsa_single}.)
 
 \item \textbf{C3.} \emph{The closed-loop correction-gain geometry is
 shaped by forward-model error and bias, not by sensory reliability.}
@@ -928,13 +929,16 @@ Figure~\ref{fig:F_spsa_single} reports the outcome trajectory and
 the final-iteration per-field $\beta$. (SPSA evaluates $S\!=\!12$
 paired episodes per iteration; the training-time numbers below
 therefore use $\sim\!10$ episodes per cell per side, distinct from
-the $n\!=\!200$ deployment eval used in C1.) The per-iteration
-outcome trajectory falls from $\approx\!0.61$\,m at iteration $0$
-to a last-$20$-iter mean of $\approx\!0.49$\,m, reaching the
-$10$-episode $K{=}0$ baseline estimate on this cell ($0.50$\,m,
-from Appendix~\ref{app:cl-sweep}); the single iteration-$99$
-snapshot is noisier at $0.53$\,m, and a fresh deployed evaluation
-of the final $\beta$ on $10$ independent episodes gives $0.56$\,m.
+the $n\!=\!200$ deployment eval used in C1 and for the deployed
+evaluation reported here.) The per-iteration outcome trajectory
+falls from $\approx\!0.61$\,m at iteration $0$ to a last-$20$-iter
+mean of $\approx\!0.49$\,m, matching the original $10$-episode
+$K{=}0$ baseline estimate on this cell ($0.50$\,m) and closing the
+bulk of the default-reliability vs.\ tighter $n{=}200$ $K{=}0$
+baseline ($0.38$\,m, Appendix~\ref{app:cl-sweep}) gap; the single
+iteration-$99$ snapshot is noisier at $0.53$\,m, and a fresh
+deployed evaluation of the final $\beta$ at $n{=}200$ on this cell
+gives $0.47$\,m.
 The final $\beta$ is non-uniform
 across fields: qpos becomes simultaneously the most-suppressed
 ($\beta_{0,\mathrm{qpos}}\!\approx\!-1.53$) and the most-reactive
@@ -950,11 +954,13 @@ The key implication is that the agent does not need an oracle on
 $K^{\star}_{\mathrm{cl}}$: from per-episode reach outcomes alone,
 $10$-parameter SPSA on $\beta$ closes a sizeable fraction of the
 default-reliability vs $K{=}0$ gap on a single training cell
-($0.77$\,m $\to\,0.56$\,m deployed, against the $10$-episode
-$K{=}0$ baseline estimate at $0.50$\,m), with the smoothed training
-trajectory briefly reaching that baseline. C4 confirms this is a
-valid use of outcome feedback in the achievable regime by extending
-the result to the full focused grid at $n{=}200$ episodes per cell.
+($0.60$\,m $\to\,0.47$\,m deployed at $n{=}200$, $\sim\!62\%$ of
+the way to the $n{=}200$ $K{=}0$ baseline at $0.38$\,m), with the
+smoothed training-time trajectory ($\approx\!0.49$\,m) matching the
+original $10$-episode $K{=}0$ baseline estimate. C4 confirms this is
+a valid use of outcome feedback in the achievable regime by
+extending the result to the full focused grid at $n{=}200$ episodes
+per cell.
 
 \begin{figure}[t]
 \centering
@@ -963,12 +969,17 @@ the result to the full focused grid at $n{=}200$ episodes per cell.
 {\textbf{Single-cell SPSA on $(\sigma{=}\mathrm{none},\,d{=}18)$
 under the $H{=}8$ forward model and joint-PD controller.}
 \emph{Top}: per-iteration $\min$-tip outcome (mean over the $S{=}10$
-paired episodes per side); the dashed line marks the closed-loop
-$K{=}0$ baseline on this cell ($0.50$\,m). The per-iter outcome
-falls from $\approx\!0.61$\,m at iteration $0$ to a last-$20$-iter
-mean of $\approx\!0.49$\,m, reaching the $K{=}0$ baseline in the
-smoothed training-time signal; a fresh deployed evaluation of the
-final $\beta$ gives $0.56$\,m (residual $\sim\!6$\,cm to $K{=}0$).
+paired episodes per side); the orange dashed line marks the
+$n{=}200$ closed-loop $K{=}0$ baseline on this cell ($0.38$\,m,
+tighter than the original $10$-episode estimate of $0.50$\,m), and
+the green dotted line marks the $n{=}200$ deployed evaluation of
+the final SPSA $\beta$ ($0.47$\,m). The per-iter outcome falls from
+$\approx\!0.61$\,m at iteration $0$ to a last-$20$-iter mean of
+$\approx\!0.49$\,m; the smoothed training-time signal therefore
+matches the original $10$-episode $K{=}0$ estimate but sits
+$\sim\!11$\,cm above the tighter $n{=}200$ baseline. The deployed
+$\beta$ closes $\sim\!62\%$ of the default-reliability vs $K{=}0$
+gap (residual $\sim\!9$\,cm to $K{=}0$).
 \emph{Bottom}: final per-field $\beta$ vector. qpos has both the
 most-negative intercept ($-1.5$) and the steepest slope ($+0.9$);
 the resulting per-field correction gains $K_f$ specialise.}
@@ -1330,8 +1341,8 @@ and trails $K{=}0$ by $21$--$35$\,cm across the focused grid at
 $n{=}200$. The
 closed-loop-oracle variant is therefore the strongest non-agent-%
 available baseline available in this setting, and the C2 single-cell
-SPSA result effectively matches it on its training cell using only
-agent-available signals.
+SPSA result comes within $\sim\!9$\,cm of $K{=}0$ on its training
+cell using only agent-available signals.
 
 % ============================================================
 \section{Discussion}
@@ -1421,10 +1432,11 @@ correction-gain predictor that requires per-cell $K$-sweep labels.
 The closed-loop-oracle variant outputs $K\!\approx\!0.02$ and
 matches $K{=}0$ on the focused grid within $1.5$\,cm at delay-$18$
 cells, which is the strongest non-agent-available baseline for the
-correction-gain problem. The C2 single-cell SPSA result effectively
-reaches this level using only signals the agent has access to ---
-prediction errors during the reach and the reaching outcome
-afterward. We frame the oracle-supervised predictor not as a
+correction-gain problem. The C2 single-cell SPSA result closes
+most of the way ($\sim\!62\%$ of the default-reliability vs $K{=}0$
+gap, leaving $\sim\!9$\,cm residual at $n{=}200$) toward this level
+using only signals the agent has access to --- prediction errors
+during the reach and the reaching outcome afterward. We frame the oracle-supervised predictor not as a
 biological model but as the upper bound against which agent-%
 available adaptation should be measured. The fact that a
 $10$-parameter SPSA on per-episode outcome closes the gap on a
@@ -1668,8 +1680,9 @@ The reliability-adaptive observer of Sec.\,\ref{sec:method-reliability}
 sets $K_f(t)$ from agent-available signals only. As a non-agent-%
 available upper bound we also train an offline-oracle-supervised
 correction-gain predictor and evaluate it on the same grid; the
-single-cell SPSA result of C2 effectively matches this predictor on
-its training cell.
+single-cell SPSA result of C2 comes within $\sim\!9$\,cm of
+$K{=}0$ on its training cell, closing the bulk of the gap to this
+predictor.
 
 \paragraph{Predictor architecture.}
 A small MLP $g_\phi:\mathbb{R}^{8}\!\to\![0,1]$ predicts the scalar
@@ -1782,9 +1795,10 @@ used in the main C1--C4 results.
 $g_\phi^{\mathrm{cl}}$ requires a per-condition $K$-sweep that the
 biological agent does not have access to. We report it as the
 strongest baseline that uses non-agent-available information; the
-C2 single-cell SPSA result matches it on the training cell while
-using only innovation history and per-episode outcome, both of
-which the agent can plausibly compute on-line.
+C2 single-cell SPSA result closes most of the gap to it on the
+training cell ($\sim\!9$\,cm residual at $n{=}200$) while using
+only innovation history and per-episode outcome, both of which the
+agent can plausibly compute on-line.
 
 \section{Full Open-Loop Oracle $K^{\star}$ Grids}
 \label{app:oracle-grids}

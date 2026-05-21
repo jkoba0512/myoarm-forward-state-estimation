@@ -27,6 +27,8 @@ FIG_DIR = Path("figures")
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 
 CL_REACHFIXED = "runs/closed_loop/2026-05-14T01-18-16Z/metrics.csv"
+CL_REACHFIXED_200EP = "runs/closed_loop/2026-05-19T01-46-59Z/metrics.csv"
+CL_C2_SINGLE_200EP = "runs/closed_loop/2026-05-21T06-05-22Z/metrics.csv"
 SPSA_SINGLE = "runs/reliability_adaptive_v2/2026-05-13T12-24-25Z"
 SPSA_FULLGRID = "runs/reliability_adaptive_v2/2026-05-13T23-40-35Z"
 
@@ -104,11 +106,17 @@ def _load_spsa_history(run_dir: str):
 def fig_spsa_single() -> None:
     print("F_spsa_single")
     iters, outcome, fb = _load_spsa_history(SPSA_SINGLE)
-    # K=0 baseline at (none, d=18): read from the same closed-loop sweep
-    cl = pd.read_csv(CL_REACHFIXED)
+    # K=0 baseline at (none, d=18): use the n=200 closed-loop sweep so the
+    # dashed reference matches the C1 reporting standard.
+    cl = pd.read_csv(CL_REACHFIXED_200EP)
     k0_baseline = cl[(cl["estimator"] == "K=0.0") &
                      (cl["noise_condition"] == "none") &
                      (cl["delay_steps"] == 18)]["min_tip_error"].mean()
+    # Deployed evaluation of the final C2 β at n=200 on the same cell.
+    c2 = pd.read_csv(CL_C2_SINGLE_200EP)
+    c2_deployed = c2[(c2["estimator"] == "reliability_adaptive_v2_c2_single") &
+                     (c2["noise_condition"] == "none") &
+                     (c2["delay_steps"] == 18)]["min_tip_error"].mean()
 
     fig, (ax_top, ax_bot) = plt.subplots(
         2, 1, figsize=(5.6, 4.6),
@@ -123,14 +131,16 @@ def fig_spsa_single() -> None:
     ax_top.plot(iters[win - 1:], smooth, color="#1f77b4", linewidth=1.8,
                 label=f"{win}-iter running mean")
     ax_top.axhline(k0_baseline, color="#ff7f0e", linestyle="--", linewidth=1.0,
-                   label=f"$K{{=}}0$ baseline ({k0_baseline:.2f} m)")
+                   label=f"$K{{=}}0$ baseline ({k0_baseline:.2f} m, $n{{=}}200$)")
+    ax_top.axhline(c2_deployed, color="#2ca02c", linestyle=":", linewidth=1.0,
+                   label=f"deployed C2 $\\beta$ ({c2_deployed:.2f} m, $n{{=}}200$)")
     ax_top.set_xlabel("SPSA iteration")
     ax_top.set_ylabel("per-iter $\\min$-tip (m)")
     ax_top.set_title("Single-cell SPSA: $(\\sigma{=}\\mathrm{none},\\,d{=}18)$, $H{=}8$, $S{=}10$",
                      fontsize=10)
     ax_top.legend(fontsize=8, loc="upper right", frameon=False)
     ax_top.grid(alpha=0.25)
-    ax_top.set_ylim(min(0.42, outcome.min() * 0.95), max(0.65, outcome.max() * 1.05))
+    ax_top.set_ylim(min(0.35, outcome.min() * 0.95), max(0.65, outcome.max() * 1.05))
 
     # Bottom: final β bar chart (β0 and β1 side by side per field)
     b0 = np.array([fb["beta0"][f] for f in FIELDS])

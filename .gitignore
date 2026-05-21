@@ -7,6 +7,7 @@ __pycache__/
 # Local experiment outputs
 runs/*
 !runs/.gitkeep
+logs/
 
 # Local/editor files
 .DS_Store
