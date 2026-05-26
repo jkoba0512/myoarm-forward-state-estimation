@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gc
 import hashlib
 import json
+import os
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +26,11 @@ from typing import Any
 
 import numpy as np
 import yaml
+
+try:
+    import psutil  # type: ignore
+except ImportError:  # pragma: no cover - psutil is optional
+    psutil = None
 
 from myoarm_fse.controllers import (
     BCController,
@@ -68,7 +75,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--master-seed", type=int, default=None)
     p.add_argument("--smoke", action="store_true",
                    help="Run a single-cell single-episode smoke and exit.")
+    p.add_argument("--resume-dir", type=Path, default=None,
+                   help="Resume into an existing run directory. Skips "
+                   "episodes whose per_episode JSON already exists; the "
+                   "config_hash must match the existing config.json.")
+    p.add_argument("--rss-log-every", type=int, default=100,
+                   help="Print RSS every N episodes (0 = disabled).")
     return p.parse_args(argv)
+
+
+def _rss_bytes() -> int | None:
+    """Best-effort RSS in bytes; returns None if psutil is unavailable."""
+    if psutil is None:
+        return None
+    try:
+        return int(psutil.Process(os.getpid()).memory_info().rss)
+    except Exception:
+        return None
 
 
 def _load_config(path: Path) -> dict[str, Any]:
@@ -279,21 +302,47 @@ def main(argv: list[str] | None = None) -> Path:
         child_seeds = rng_seq.spawn(n_cells)
         seed_iter = iter(child_seeds)
 
-        eval_id = _make_eval_id()
-        out_dir = Path(cfg.get("output_root", "runs/closed_loop")) / eval_id
-        per_ep_dir = out_dir / "per_episode"
-        if save_per_episode:
-            per_ep_dir.mkdir(parents=True, exist_ok=True)
+        cfg_hash = _hash_config(cfg)
+        if args.resume_dir is not None:
+            out_dir = Path(args.resume_dir)
+            if not out_dir.is_dir():
+                raise SystemExit(
+                    f"--resume-dir does not exist: {out_dir}"
+                )
+            cfg_json_path = out_dir / "config.json"
+            if not cfg_json_path.exists():
+                raise SystemExit(
+                    f"--resume-dir is missing config.json: {cfg_json_path}"
+                )
+            existing_meta = json.loads(cfg_json_path.read_text())
+            existing_hash = str(existing_meta.get("config_hash", ""))
+            if existing_hash != cfg_hash:
+                raise SystemExit(
+                    f"config_hash mismatch for resume: existing="
+                    f"{existing_hash!r} new={cfg_hash!r}. Refusing to "
+                    f"resume into a run with a different config."
+                )
+            eval_id = str(existing_meta.get("eval_id", out_dir.name))
+            per_ep_dir = out_dir / "per_episode"
+            if save_per_episode:
+                per_ep_dir.mkdir(parents=True, exist_ok=True)
+            print(f"  resuming into: {out_dir}  (eval_id={eval_id})")
         else:
-            out_dir.mkdir(parents=True, exist_ok=True)
-        (out_dir / "config.json").write_text(
-            json.dumps({
-                "eval_id": eval_id,
-                "config_hash": _hash_config(cfg),
-                "config": cfg,
-                "forward_model_run_id": Path(cfg["forward_model"]).name,
-            }, indent=2)
-        )
+            eval_id = _make_eval_id()
+            out_dir = Path(cfg.get("output_root", "runs/closed_loop")) / eval_id
+            per_ep_dir = out_dir / "per_episode"
+            if save_per_episode:
+                per_ep_dir.mkdir(parents=True, exist_ok=True)
+            else:
+                out_dir.mkdir(parents=True, exist_ok=True)
+            (out_dir / "config.json").write_text(
+                json.dumps({
+                    "eval_id": eval_id,
+                    "config_hash": cfg_hash,
+                    "config": cfg,
+                    "forward_model_run_id": Path(cfg["forward_model"]).name,
+                }, indent=2)
+            )
 
         rows: list[dict[str, Any]] = []
         # When picking a "controller name" for the learned estimator's
@@ -314,10 +363,31 @@ def main(argv: list[str] | None = None) -> Path:
             delay_grid = delay_grid[:1]
             episodes_per_cell = 1
 
+        global_ep = 0
+        skipped_ep = 0
+        ran_ep = 0
+        rss_log_every = max(0, int(args.rss_log_every))
         for est_spec in estimators:
             for noise_name, sigma_dict in noise_conditions.items():
                 for delay in delay_grid:
                     for ep_idx in range(episodes_per_cell):
+                        global_ep += 1
+                        # Resume: if the per-episode JSON for this cell
+                        # already exists, advance the seed iterator (so
+                        # downstream eps get the same seed they would in a
+                        # fresh run) and skip the rollout.
+                        per_ep_path = (
+                            per_ep_dir / f"{est_spec['name']}_n-{noise_name}_"
+                            f"d-{int(delay)}_e-{ep_idx}.json"
+                        ) if save_per_episode else None
+                        if (
+                            args.resume_dir is not None
+                            and per_ep_path is not None
+                            and per_ep_path.exists()
+                        ):
+                            _ = next(seed_iter)
+                            skipped_ep += 1
+                            continue
                         child = next(seed_iter)
                         seeds = child.generate_state(4).astype(np.int64)
                         obs_noise_seed = int(seeds[0])
@@ -504,11 +574,7 @@ def main(argv: list[str] | None = None) -> Path:
                         }
                         rows.append(row)
 
-                        if save_per_episode:
-                            per_ep_path = (
-                                per_ep_dir / f"{est_spec['name']}_n-{noise_name}_"
-                                f"d-{int(delay)}_e-{ep_idx}.json"
-                            )
+                        if save_per_episode and per_ep_path is not None:
                             per_ep_path.write_text(json.dumps(row, indent=2))
 
                         print(
@@ -519,10 +585,42 @@ def main(argv: list[str] | None = None) -> Path:
                             f"S005={int(summary['success_005'])}  "
                             f"tip_est={summary['tip_estimation_error_mean']:.4f}"
                         )
+                        ran_ep += 1
+
+                        # Memory hygiene: explicitly drop per-episode
+                        # holdings so the GC reclaims the (T, dim) arrays
+                        # in EpisodeLog/x_est before the next iteration.
+                        del result, x_true, summary, estimator, controller
+                        if rss_log_every > 0 and ran_ep % rss_log_every == 0:
+                            gc.collect()
+                            rss = _rss_bytes()
+                            rss_str = (
+                                f"{rss / (1024**3):.2f} GiB" if rss is not None
+                                else "n/a (psutil missing)"
+                            )
+                            print(
+                                f"  [mem] global_ep={global_ep}/{n_cells}  "
+                                f"ran={ran_ep}  skipped={skipped_ep}  "
+                                f"rss={rss_str}"
+                            )
     finally:
         env.close()
 
     # --- CSV ---
+    # On a resume the `rows` list contains only freshly-run episodes;
+    # reload the full per_episode/ corpus so metrics.csv/summary.json
+    # cover the entire grid. For a fresh run with save_per_episode this
+    # is a no-op (rows already match disk).
+    if save_per_episode:
+        disk_rows: list[dict[str, Any]] = []
+        for ep_path in sorted((out_dir / "per_episode").glob("*.json")):
+            disk_rows.append(json.loads(ep_path.read_text()))
+        if disk_rows:
+            rows = disk_rows
+            print(
+                f"  rebuilt rows from {len(disk_rows)} per_episode files "
+                f"for metrics.csv / summary.json"
+            )
     if not rows:
         raise SystemExit("no rollouts ran; check config")
     columns = [
