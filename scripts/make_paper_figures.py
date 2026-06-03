@@ -140,7 +140,7 @@ def fig_F1_system_overview() -> None:
     box(0.3, 4.25, 2.7, 1.05, "MuJoCo / MyoSuite\n(true state)", "#dddddd")
     box(4.1, 4.25, 2.7, 1.05, "Observation\nwrappers\n(noise + delay)")
     box(7.9, 4.25, 2.7, 1.05, "State observer\nxpred + K*(y - xpred)", "#cfeacf")
-    box(11.7, 4.25, 2.7, 1.05, "Controller\n(joint-PD / BC)", "#c8d8ee")
+    box(11.7, 4.25, 2.7, 1.05, "Controller\n(stabilized probe)", "#c8d8ee")
     # Forward model bypass
     box(7.9, 1.95, 2.7, 1.05, "Forward model\n(residual MLP)", "#fde6c4")
     # Action loop
