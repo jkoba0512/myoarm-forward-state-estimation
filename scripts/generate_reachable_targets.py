@@ -77,6 +77,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Output .npz path. Defaults to runs/targets_reachable/<UTC>/<split>.npz",
     )
+    p.add_argument(
+        "--max-target-z",
+        type=float,
+        default=None,
+        help=(
+            "Optional upper bound on target z. Candidates with z > "
+            "max-target-z are rejected before the IK call. Used to "
+            "restrict the target set to below the anatomical shoulder "
+            "(shoulder z ≈ 1.393 m for myoArm)."
+        ),
+    )
     return p.parse_args(argv)
 
 
@@ -140,10 +151,15 @@ def main(argv: list[str] | None = None) -> None:
         accepted_ik_err: list[float] = []
         rejected_seeds: list[int] = []
         rejected_ik_err: list[float] = []
+        rejected_z_seeds: list[int] = []
 
         max_attempts = args.max_attempts_mult * args.n
         base = args.generator_seed + args.seed_offset
         attempt_idx = 0
+        max_target_z = (
+            float(args.max_target_z)
+            if args.max_target_z is not None else None
+        )
 
         while len(accepted_seeds) < args.n:
             if attempt_idx >= max_attempts:
@@ -157,6 +173,13 @@ def main(argv: list[str] | None = None) -> None:
 
             rng = np.random.default_rng(int(seed))
             t = rng.uniform(low=low, high=high)
+
+            # Pre-IK z filter (α-1): reject candidates whose target z
+            # exceeds the configured ceiling. Cheap — skips IK entirely.
+            if max_target_z is not None and float(t[2]) > max_target_z:
+                rejected_z_seeds.append(int(seed))
+                continue
+
             env.reset()
             uw.mj_model.site_pos[target_sid] = t
             mujoco.mj_forward(uw.mj_model, uw.mj_data)
@@ -189,7 +212,9 @@ def main(argv: list[str] | None = None) -> None:
         print()
         print(f"  attempted: {attempted}")
         print(f"  accepted:  {len(accepted_seeds)}")
-        print(f"  rejected:  {len(rejected_seeds)}")
+        print(f"  rejected (IK): {len(rejected_seeds)}")
+        if max_target_z is not None:
+            print(f"  rejected (z > {max_target_z}): {len(rejected_z_seeds)}")
         print(f"  acceptance rate: {acceptance_rate:.3f}")
         if accepted_ik_err:
             s = _summary(accepted_ik_err)
@@ -221,9 +246,14 @@ def main(argv: list[str] | None = None) -> None:
             "accepted": int(len(accepted_seeds)),
             "rejected": int(len(rejected_seeds)),
             "acceptance_rate": float(acceptance_rate),
+            "max_target_z": (
+                float(max_target_z) if max_target_z is not None else None
+            ),
+            "rejected_z_count": int(len(rejected_z_seeds)),
             "accepted_ik_error_summary": _summary(accepted_ik_err),
             "rejected_ik_error_summary": _summary(rejected_ik_err),
             "rejected_seeds": rejected_seeds,
+            "rejected_z_seeds": rejected_z_seeds,
             "notes": (
                 "target_pos sampled uniformly in target_reach_range via "
                 "np.random.default_rng(seed_i).uniform(low, high). For each "

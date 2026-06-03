@@ -51,8 +51,10 @@ import yaml
 from myoarm_fse.controllers import (
     EndpointErrorFeedbackController,
     JointSpacePDController,
+    StabilizedEndpointController,
     make_controller,
 )
+from myoarm_fse.envs.extractors import extract_state
 from myoarm_fse.envs.actions import ActionAdapter, detect_action_dim
 from myoarm_fse.envs.factory import make_env
 from myoarm_fse.envs.ik import (
@@ -169,6 +171,31 @@ def _build_controller(
             Kp=float(controller_spec.get("Kp", 30.0)),
             Kd=float(controller_spec.get("Kd", 3.0)),
             action_scale=float(controller_spec.get("action_scale", 5.0)),
+        )
+        c.reset(seed=seed)
+        return c
+    if name in ("stabilized_endpoint", "a_plus_b", "nnls_ramp"):
+        # NNLS muscle routing + virtual target ramp (Stage B pivot).
+        env.reset()
+        mujoco.mj_forward(env.unwrapped.mj_model, env.unwrapped.mj_data)
+        init_tip = np.asarray(extract_state(env).tip_pos, dtype=np.float32)
+        jacobian = tip_jacobian_dense(env)
+        moment_arm = actuator_moment_dense(env)
+        T_ramp_raw = controller_spec.get("T_ramp", 300)
+        T_ramp_arg = None if T_ramp_raw is None else int(T_ramp_raw)
+        c = StabilizedEndpointController(
+            action_dim=action_dim,
+            init_tip=init_tip,
+            target_pos=target_pos,
+            jacobian=jacobian,
+            moment_arm=moment_arm,
+            Kp=float(controller_spec.get("Kp", 30.0)),
+            Kd=float(controller_spec.get("Kd", 3.0)),
+            action_scale=float(controller_spec.get("action_scale", 5.0)),
+            T_ramp=T_ramp_arg,
+            record_history=bool(
+                controller_spec.get("record_history", False)
+            ),
         )
         c.reset(seed=seed)
         return c

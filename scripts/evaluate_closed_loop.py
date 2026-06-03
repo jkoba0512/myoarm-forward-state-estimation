@@ -36,9 +36,11 @@ from myoarm_fse.controllers import (
     BCController,
     EndpointErrorFeedbackController,
     JointSpacePDController,
+    StabilizedEndpointController,
     load_bc_policy,
     make_controller,
 )
+from myoarm_fse.envs.extractors import extract_state
 from myoarm_fse.data.rollout import EpisodeSpec
 from myoarm_fse.envs.actions import ActionAdapter, detect_action_dim
 from myoarm_fse.envs.factory import make_env
@@ -109,6 +111,56 @@ def _make_eval_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
 
 
+def _git_provenance() -> dict[str, Any]:
+    """Best-effort git commit + dirty status. Stage C provenance per
+    Codex 2026-06-01 Q28 ((c) git_commit + sources). Returns
+    ``{"git_commit": "unknown", "git_dirty": False}`` on failure so
+    the eval is not blocked by git unavailability."""
+    import subprocess
+    try:
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=Path(__file__).resolve().parents[1],
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        return {"git_commit": "unknown", "git_dirty": False}
+    try:
+        status = subprocess.check_output(
+            ["git", "status", "--porcelain"],
+            cwd=Path(__file__).resolve().parents[1],
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+        dirty = bool(status)
+    except Exception:
+        dirty = False
+    return {"git_commit": commit, "git_dirty": dirty}
+
+
+def _collect_estimator_sources(
+    estimators: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Walk the estimator specs and report any external β/W source
+    paths so the deployed values are traceable to their training run."""
+    out: dict[str, dict[str, Any]] = {}
+    for est in estimators:
+        name = str(est.get("name", "?"))
+        rec: dict[str, Any] = {}
+        if "beta_source" in est:
+            rec["beta_source"] = str(est["beta_source"])
+        if "w_source" in est:
+            rec["w_source"] = str(est["w_source"])
+        if "base_beta_source" in est:
+            rec["base_beta_source"] = str(est["base_beta_source"])
+        if "cell_features" in est:
+            rec["cell_features"] = str(est["cell_features"])
+        if est.get("kind") == "learned" and "learned_gain_model" in est:
+            rec["learned_gain_model"] = str(est["learned_gain_model"])
+        if rec:
+            out[name] = rec
+    return out
+
+
 def _state_spec_from_model_config(model_config: dict[str, Any]) -> StateSpec:
     state_dim = int(model_config["architecture"]["state_dim"])
     if state_dim == 83:
@@ -142,10 +194,30 @@ def _build_estimator(
             ReliabilityAdaptiveObserver,
         )
         cfg_spec = estimator_spec.get("config", {})
-        # Parse optional per-field beta dicts.
         adaptive_fields = ("qpos", "qvel", "act", "tip_pos", "reach_err")
-        beta0_raw = cfg_spec.get("beta0", {})
-        beta1_raw = cfg_spec.get("beta1", {})
+
+        # β source resolution (Codex Stage C Q27: source-of-truth path).
+        # If `beta_source` is given, load beta0/beta1 from that JSON
+        # file. Simultaneous in-config beta0/beta1 is a fail-fast
+        # error to avoid ambiguity about which values are deployed.
+        beta_source_path = estimator_spec.get("beta_source")
+        cfg_has_beta = (
+            "beta0" in cfg_spec or "beta1" in cfg_spec
+        )
+        if beta_source_path is not None and cfg_has_beta:
+            raise ValueError(
+                f"estimator {estimator_spec.get('name', '?')!r}: "
+                f"cannot specify both 'beta_source' ({beta_source_path}) "
+                f"and config.beta0/beta1. Pick one source of truth."
+            )
+        if beta_source_path is not None:
+            with open(beta_source_path) as f:
+                beta_blob = json.load(f)
+            beta0_raw = beta_blob.get("beta0", {})
+            beta1_raw = beta_blob.get("beta1", {})
+        else:
+            beta0_raw = cfg_spec.get("beta0", {})
+            beta1_raw = cfg_spec.get("beta1", {})
         beta0 = {f: float(beta0_raw.get(f, 0.0)) for f in adaptive_fields}
         beta1 = {f: float(beta1_raw.get(f, 0.5)) for f in adaptive_fields}
         ra_cfg = ReliabilityAdaptiveConfig(
@@ -335,10 +407,23 @@ def main(argv: list[str] | None = None) -> Path:
                 per_ep_dir.mkdir(parents=True, exist_ok=True)
             else:
                 out_dir.mkdir(parents=True, exist_ok=True)
+            # Codex 2026-06-01 Q28: enrich provenance metadata with
+            # git commit, source file paths, and estimator β/W sources
+            # so deployed runs are traceable back to training artifacts.
+            git_meta = _git_provenance()
             (out_dir / "config.json").write_text(
                 json.dumps({
                     "eval_id": eval_id,
                     "config_hash": cfg_hash,
+                    "git_commit": git_meta["git_commit"],
+                    "git_dirty": git_meta["git_dirty"],
+                    "config_path": str(args.config),
+                    "forward_model_path": str(cfg["forward_model"]),
+                    "target_set_path": str(cfg["target_set"]),
+                    "controller_config": dict(cfg.get("controller", {})),
+                    "estimator_sources": _collect_estimator_sources(
+                        estimators,
+                    ),
                     "config": cfg,
                     "forward_model_run_id": Path(cfg["forward_model"]).name,
                 }, indent=2)
@@ -490,6 +575,43 @@ def main(argv: list[str] | None = None) -> Path:
                             )
                             controller.reset(seed=controller_seed)
                             ik_info = None
+                        elif controller_spec.get("name") in (
+                            "stabilized_endpoint", "a_plus_b", "nnls_ramp",
+                        ):
+                            # NNLS muscle routing + virtual target ramp.
+                            # Capture init_tip, J, M at the neutral pose.
+                            import mujoco as _mj
+                            env.reset()
+                            _mj.mj_forward(env.unwrapped.mj_model,
+                                           env.unwrapped.mj_data)
+                            init_tip = np.asarray(
+                                extract_state(env).tip_pos, dtype=np.float32,
+                            )
+                            jacobian = tip_jacobian_dense(env)
+                            moment_arm = actuator_moment_dense(env)
+                            T_ramp_raw = controller_spec.get("T_ramp", 300)
+                            T_ramp_arg = (
+                                None if T_ramp_raw is None
+                                else int(T_ramp_raw)
+                            )
+                            controller = StabilizedEndpointController(
+                                action_dim=action_dim,
+                                init_tip=init_tip,
+                                target_pos=target_pos,
+                                jacobian=jacobian,
+                                moment_arm=moment_arm,
+                                Kp=float(controller_spec.get("Kp", 30.0)),
+                                Kd=float(controller_spec.get("Kd", 3.0)),
+                                action_scale=float(controller_spec.get(
+                                    "action_scale", 5.0
+                                )),
+                                T_ramp=T_ramp_arg,
+                                record_history=bool(controller_spec.get(
+                                    "record_history", False
+                                )),
+                            )
+                            controller.reset(seed=controller_seed)
+                            ik_info = None
                         else:
                             controller = make_controller(
                                 controller_spec,
@@ -556,6 +678,62 @@ def main(argv: list[str] | None = None) -> Path:
                             summary["learned_k_std"] = 0.0
                             summary["learned_k_min"] = g
                             summary["learned_k_max"] = g
+
+                        # Controller-health metrics (Stage B pivot).
+                        # Populated when the controller exposes per-step
+                        # history attrs (e.g. StabilizedEndpointController
+                        # with record_history=True). Codex required:
+                        # nnls_residual, activation stats, ramp_progress.
+                        if getattr(controller, "nnls_residual_history", []):
+                            nnls_arr = np.asarray(
+                                controller.nnls_residual_history,
+                                dtype=np.float64,
+                            )
+                            summary["nnls_residual_mean"] = float(nnls_arr.mean())
+                            summary["nnls_residual_max"] = float(nnls_arr.max())
+                        if getattr(controller, "activation_history", []):
+                            act_arr = np.asarray(
+                                controller.activation_history,
+                                dtype=np.float64,
+                            )
+                            summary["activation_mean"] = float(act_arr.mean())
+                            summary["activation_max"] = float(act_arr.max())
+                            summary["activation_sat95_frac"] = float(
+                                (act_arr >= 0.95).mean()
+                            )
+                        if getattr(controller, "ramp_progress_history", []):
+                            ramp_arr = np.asarray(
+                                controller.ramp_progress_history,
+                                dtype=np.float64,
+                            )
+                            summary["ramp_progress_final"] = float(ramp_arr[-1])
+                            above = np.where(ramp_arr >= 0.99)[0]
+                            summary["ramp_progress_t99"] = (
+                                int(above[0]) if above.size else -1
+                            )
+
+                        # Field-wise realised K stats (Codex 2026-06-01 Q30).
+                        # ReliabilityAdaptiveObserver exposes
+                        # field_k_history() returning {field: (T,) array}.
+                        # We log per-field mean / std / second-half mean
+                        # so Stage C tables can read which K regime the
+                        # adaptive estimator actually settled into.
+                        if hasattr(estimator, "field_k_history"):
+                            fkh = estimator.field_k_history()
+                            for field in (
+                                "qpos", "qvel", "act", "tip_pos", "reach_err",
+                            ):
+                                arr = np.asarray(
+                                    fkh.get(field, []), dtype=np.float64,
+                                )
+                                if arr.size == 0:
+                                    continue
+                                summary[f"k_{field}_mean"] = float(arr.mean())
+                                summary[f"k_{field}_std"] = float(arr.std())
+                                half = arr.size // 2
+                                summary[f"k_{field}_second_half_mean"] = float(
+                                    arr[half:].mean()
+                                )
 
                         row = {
                             "estimator": est_spec["name"],
@@ -632,6 +810,18 @@ def main(argv: list[str] | None = None) -> Path:
         "tip_estimation_error_mean", "tip_estimation_error_final",
         "state_mse_mean",
         "learned_k_mean", "learned_k_std", "learned_k_min", "learned_k_max",
+        # Controller-health metrics (Stage B pivot; blank when the
+        # controller does not expose history attrs).
+        "nnls_residual_mean", "nnls_residual_max",
+        "activation_mean", "activation_max", "activation_sat95_frac",
+        "ramp_progress_final", "ramp_progress_t99",
+        # Field-wise realised K (Stage C; blank when estimator does not
+        # expose field_k_history()).
+        "k_qpos_mean", "k_qpos_std", "k_qpos_second_half_mean",
+        "k_qvel_mean", "k_qvel_std", "k_qvel_second_half_mean",
+        "k_act_mean", "k_act_std", "k_act_second_half_mean",
+        "k_tip_pos_mean", "k_tip_pos_std", "k_tip_pos_second_half_mean",
+        "k_reach_err_mean", "k_reach_err_std", "k_reach_err_second_half_mean",
         "model_run_id", "learned_gain_model_id",
     ]
     metrics_csv = out_dir / "metrics.csv"
@@ -653,6 +843,21 @@ def main(argv: list[str] | None = None) -> Path:
         "effort_norm", "tip_estimation_error_mean",
         "tip_estimation_error_final", "state_mse_mean",
     ]
+    # Optional controller-health fields (Stage B pivot). Aggregated
+    # only when at least one row in the group exposes the field.
+    # ramp_progress_t99 is an integer step index and is excluded from
+    # mean/std aggregation; it is preserved per-row in metrics.csv.
+    optional_metric_fields = [
+        "nnls_residual_mean", "nnls_residual_max",
+        "activation_mean", "activation_max", "activation_sat95_frac",
+        "ramp_progress_final",
+        # Field-wise realised K (Stage C): 5 fields × 3 stats each.
+        "k_qpos_mean", "k_qpos_std", "k_qpos_second_half_mean",
+        "k_qvel_mean", "k_qvel_std", "k_qvel_second_half_mean",
+        "k_act_mean", "k_act_std", "k_act_second_half_mean",
+        "k_tip_pos_mean", "k_tip_pos_std", "k_tip_pos_second_half_mean",
+        "k_reach_err_mean", "k_reach_err_std", "k_reach_err_second_half_mean",
+    ]
     success_fields = [k for k in rows[0].keys() if k.startswith("success_")]
     for (est_name, noise_name, delay), group in sorted(groups.items()):
         entry: dict[str, Any] = {
@@ -665,6 +870,11 @@ def main(argv: list[str] | None = None) -> Path:
             vals = [float(g[field]) for g in group]
             entry[f"{field}_mean"] = float(np.mean(vals))
             entry[f"{field}_std"] = float(np.std(vals))
+        for field in optional_metric_fields:
+            vals = [float(g[field]) for g in group if field in g and g[field] != ""]
+            if vals:
+                entry[f"{field}_mean"] = float(np.mean(vals))
+                entry[f"{field}_std"] = float(np.std(vals))
         for field in success_fields:
             entry[f"{field}_rate"] = float(np.mean([float(g[field]) for g in group]))
         summary.append(entry)

@@ -20,10 +20,13 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from myoarm_fse.controllers import JointSpacePDController
+from myoarm_fse.controllers import StabilizedEndpointController
 from myoarm_fse.envs.actions import ActionAdapter, detect_action_dim
+from myoarm_fse.envs.extractors import extract_state
 from myoarm_fse.envs.factory import make_env
-from myoarm_fse.envs.ik import actuator_moment_dense, solve_ik
+from myoarm_fse.envs.ik import (
+    actuator_moment_dense, solve_ik, tip_jacobian_dense,
+)
 from myoarm_fse.envs.state import StateSpec
 from myoarm_fse.envs.targets import TargetSet
 from myoarm_fse.envs.wrappers import (
@@ -54,11 +57,16 @@ def run_episode(env, fm, state_spec, target_pos, noise, delay, beta_cfg, seed):
 
     env.reset(seed=seed)
     mujoco.mj_forward(env.unwrapped.mj_model, env.unwrapped.mj_data)
-    target_qpos, _ = solve_ik(env, target_pos)
     moment_arm = actuator_moment_dense(env)
-    controller = JointSpacePDController(
-        action_dim=action_dim, target_qpos=target_qpos,
-        moment_arm=moment_arm, Kp=30, Kd=3, action_scale=5,
+    jacobian = tip_jacobian_dense(env)
+    init_tip = np.asarray(extract_state(env).tip_pos, dtype=np.float32)
+    controller = StabilizedEndpointController(
+        action_dim=action_dim,
+        init_tip=init_tip,
+        target_pos=target_pos,
+        jacobian=jacobian,
+        moment_arm=moment_arm,
+        Kp=30.0, Kd=3.0, action_scale=5.0, T_ramp=300,
     )
     controller.reset(seed=seed)
 
