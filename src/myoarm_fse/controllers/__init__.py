@@ -21,6 +21,9 @@ from myoarm_fse.controllers.hold import HoldController
 from myoarm_fse.controllers.joint_pd import JointSpacePDController
 from myoarm_fse.controllers.random import RandomController
 from myoarm_fse.controllers.scripted_reach import ScriptedReachController
+from myoarm_fse.controllers.stabilized_endpoint import (
+    StabilizedEndpointController,
+)
 
 __all__ = [
     "BCController",
@@ -33,6 +36,7 @@ __all__ = [
     "JointSpacePDController",
     "RandomController",
     "ScriptedReachController",
+    "StabilizedEndpointController",
     "load_bc_policy",
     "make_bc_model_id",
     "make_controller",
