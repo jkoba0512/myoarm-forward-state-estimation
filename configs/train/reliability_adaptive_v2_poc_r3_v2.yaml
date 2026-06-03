@@ -1,0 +1,62 @@
+# R3 C2 single-cell SPSA β training — v2 (Stage B controller pivot).
+#
+# v2 changes vs reliability_adaptive_v2_poc_r3.yaml:
+#   controller : joint_pd → stabilized_endpoint (NNLS routing + virtual
+#                target ramp, T_ramp=300)
+#   target_set : 2026-05-21 (full z) → 2026-05-27 (z < 1.393, below-shoulder)
+#
+# SPSA budget (100 iter / 12 samples per side) is unchanged from the
+# v1 config (Codex Stage B 2026-05-21 decision Q5).
+#
+# Mirrors oracle_k_sweep_r3_v2.yaml for the controller and target_set
+# selection; observer and SPSA blocks are unchanged.
+
+seed: 0
+
+env_id: myoArmReachFixed-v0
+horizon: 600
+max_steps: 600
+forward_model: runs/models/2026-05-21T09-46-39Z
+target_set: runs/targets_reachable/2026-05-27T07-37-54Z/reachable_train.npz
+
+noise_conditions:
+  none: { qpos: 0.0, qvel: 0.0, tip_pos: 0.0, reach_err: 0.0 }
+
+delay_grid: [18]
+
+controller:
+  name: stabilized_endpoint
+  Kp: 30.0
+  Kd: 3.0
+  action_scale: 5.0
+  T_ramp: 300
+  record_history: true
+
+observer:
+  alpha: 0.05
+  epsilon: 1.0e-6
+  var_init: 1.0
+  init_beta0:
+    qpos: 0.0
+    qvel: 0.0
+    act: 0.0
+    tip_pos: 0.0
+    reach_err: 0.0
+  init_beta1:
+    qpos: 0.5
+    qvel: 0.5
+    act: 0.5
+    tip_pos: 0.5
+    reach_err: 0.5
+  target_pos_gain: 1.0
+
+spsa:
+  max_iter: 100
+  samples_per_side: 12
+  a: 2.0
+  c: 0.3
+  alpha: 0.602
+  gamma: 0.101
+  A: 5.0
+
+output_root: runs/reliability_adaptive_v2

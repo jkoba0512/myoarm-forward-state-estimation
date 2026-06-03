@@ -1,0 +1,67 @@
+# R3 Appendix C oracle K-sweep (joint-PD only).
+#
+# Runs the closed-loop K-sweep on the focused 6-cell grid under the
+# R3 H=8 forward model + joint-PD controller, with K ∈ {0, 0.25, 0.5,
+# 0.75, 1.0} × 200 episodes per cell per K. Output is the per-cell
+# best K (argmin mean min_tip_error) used as the closed-loop oracle
+# baseline for Appendix C.
+#
+# Per Codex Stage B decision Q6 (2026-05-21):
+# - joint-PD only (no 3-controller version in R3 first pass; main
+#   story is joint-PD probe so Appendix C aligns).
+# - oracle-supervised predictor training is dropped from first pass;
+#   only the K-sweep table is required.
+
+seed: 0
+
+env_id: myoArmReachFixed-v0
+horizon: 600
+
+forward_model: runs/models/2026-05-21T09-46-39Z
+target_set: runs/targets_reachable/2026-05-21T09-13-52Z/reachable_train.npz
+episodes_per_cell: 200
+
+obs_compose: noisy_then_delayed
+
+noise_conditions:
+  none:  { qpos: 0.0,  qvel: 0.0,  tip_pos: 0.0,  reach_err: 0.0 }
+  high:  { qpos: 0.02, qvel: 0.02, tip_pos: 0.01, reach_err: 0.01 }
+  xhigh: { qpos: 0.08, qvel: 0.08, tip_pos: 0.04, reach_err: 0.04 }
+
+delay_grid: [0, 18]
+
+estimators:
+  - name: K=0.00
+    kind: fixed
+    gain: 0.0
+  - name: K=0.25
+    kind: fixed
+    gain: 0.25
+  - name: K=0.50
+    kind: fixed
+    gain: 0.5
+  - name: K=0.75
+    kind: fixed
+    gain: 0.75
+  - name: K=1.00
+    kind: fixed
+    gain: 1.0
+
+controller:
+  name: joint_pd
+  Kp: 30.0
+  Kd: 3.0
+  action_scale: 5.0
+  ik_max_iter: 200
+  ik_tol: 0.01
+  ik_damping: 0.1
+
+sdn:
+  sigma: 0.0
+
+success_thresholds: [0.05, 0.10, 0.15]
+success_duration: 10
+skip_cold_start_steps_use_delay: true
+save_per_episode: true
+
+output_root: runs/closed_loop

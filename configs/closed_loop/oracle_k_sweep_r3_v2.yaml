@@ -1,0 +1,75 @@
+# R3 Appendix C oracle K-sweep — v2 (Stage B controller pivot).
+#
+# Replaces oracle_k_sweep_r3.yaml after the controller pivot. The old
+# joint-PD probe was found to produce an artefactual K=0 winner driven
+# by forward-model autoregressive divergence; see exchange
+# 2026-05-27_q12-done-q11-results-stage-bc-config-diff_response_to-claude-code
+# and runs/r3_stage_b_controller_pivot_proposal_2026-05-27.md.
+#
+# v2 changes vs v1:
+#   controller : joint_pd → stabilized_endpoint (NNLS routing + virtual
+#                target ramp, T_ramp=300)
+#   target_set : 2026-05-21 (full z range) →
+#                2026-05-27 (z < 1.393 m, below-shoulder)
+#   controller-health columns enabled via record_history: true (NNLS
+#   residual / activation stats / ramp progress logged into metrics.csv)
+#
+# Per Codex 2026-05-27 response:
+#   - K=0 retained as ablation; primary sweet-spot analysis uses K in
+#     {0.25, 0.5, 0.75, 1.0}.
+#   - oracle-supervised predictor training is again excluded from first
+#     pass; only the K-sweep table + controller-health diagnostics are
+#     required for the Stage B gate.
+
+seed: 0
+
+env_id: myoArmReachFixed-v0
+horizon: 600
+
+forward_model: runs/models/2026-05-21T09-46-39Z
+target_set: runs/targets_reachable/2026-05-27T07-37-54Z/reachable_train.npz
+episodes_per_cell: 200
+
+obs_compose: noisy_then_delayed
+
+noise_conditions:
+  none:  { qpos: 0.0,  qvel: 0.0,  tip_pos: 0.0,  reach_err: 0.0 }
+  high:  { qpos: 0.02, qvel: 0.02, tip_pos: 0.01, reach_err: 0.01 }
+  xhigh: { qpos: 0.08, qvel: 0.08, tip_pos: 0.04, reach_err: 0.04 }
+
+delay_grid: [0, 18]
+
+estimators:
+  - name: K=0.00
+    kind: fixed
+    gain: 0.0
+  - name: K=0.25
+    kind: fixed
+    gain: 0.25
+  - name: K=0.50
+    kind: fixed
+    gain: 0.5
+  - name: K=0.75
+    kind: fixed
+    gain: 0.75
+  - name: K=1.00
+    kind: fixed
+    gain: 1.0
+
+controller:
+  name: stabilized_endpoint
+  Kp: 30.0
+  Kd: 3.0
+  action_scale: 5.0
+  T_ramp: 300
+  record_history: true
+
+sdn:
+  sigma: 0.0
+
+success_thresholds: [0.05, 0.10, 0.15]
+success_duration: 10
+skip_cold_start_steps_use_delay: true
+save_per_episode: true
+
+output_root: runs/closed_loop

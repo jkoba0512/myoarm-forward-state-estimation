@@ -1,0 +1,45 @@
+# Sanity config for the v2 K-sweep flow: 1 cell × 5 K × 3 ep.
+# Used to confirm controller-health columns appear at every K of the
+# full K-grid (not just the smoke's single K=1.0).
+# Discard the output afterwards.
+
+seed: 0
+
+env_id: myoArmReachFixed-v0
+horizon: 600
+
+forward_model: runs/models/2026-05-21T09-46-39Z
+target_set: runs/targets_reachable/2026-05-27T07-37-54Z/reachable_train.npz
+episodes_per_cell: 3
+
+obs_compose: noisy_then_delayed
+
+noise_conditions:
+  none: { qpos: 0.0, qvel: 0.0, tip_pos: 0.0, reach_err: 0.0 }
+
+delay_grid: [0]
+
+estimators:
+  - { name: K=0.00, kind: fixed, gain: 0.0 }
+  - { name: K=0.25, kind: fixed, gain: 0.25 }
+  - { name: K=0.50, kind: fixed, gain: 0.5 }
+  - { name: K=0.75, kind: fixed, gain: 0.75 }
+  - { name: K=1.00, kind: fixed, gain: 1.0 }
+
+controller:
+  name: stabilized_endpoint
+  Kp: 30.0
+  Kd: 3.0
+  action_scale: 5.0
+  T_ramp: 300
+  record_history: true
+
+sdn:
+  sigma: 0.0
+
+success_thresholds: [0.05, 0.10, 0.15]
+success_duration: 10
+skip_cold_start_steps_use_delay: true
+save_per_episode: false
+
+output_root: runs/closed_loop_sanity
