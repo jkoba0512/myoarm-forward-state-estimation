@@ -25,3 +25,6 @@ paper/*.toc
 paper/*.fdb_latexmk
 paper/*.fls
 paper/*.synctex.gz
+
+# Submission bundles (derived; rebuild from sources)
+paper/*_submission_*.tar.gz
