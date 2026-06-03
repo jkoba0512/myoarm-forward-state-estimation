@@ -28,3 +28,12 @@ paper/*.synctex.gz
 
 # Submission bundles (derived; rebuild from sources)
 paper/*_submission_*.tar.gz
+
+# Internal submission docs — keep local, never publish (cover letter,
+# reviewer suggestions, submission checklists/sheets)
+paper/suggested_reviewers.md
+paper/cover_letter.md
+paper/cover_letter.tex
+paper/cover_letter.pdf
+paper/SUBMISSION.md
+paper/biorxiv_submission.md
