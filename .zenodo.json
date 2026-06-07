@@ -1,0 +1,26 @@
+{
+  "title": "myoarm-forward-state-estimation",
+  "description": "Reproduction code, configurations, tests, and manuscript artifacts for closed-loop predictive state observation and outcome-trained correction-gain adaptation in a MyoSuite myoArm reaching task.",
+  "upload_type": "software",
+  "version": "0.1.0",
+  "creators": [
+    {
+      "name": "Kobayashi, Jun",
+      "affiliation": "Kyushu Institute of Technology",
+      "orcid": "0009-0002-6318-2617"
+    }
+  ],
+  "license": "Apache-2.0",
+  "access_right": "open",
+  "keywords": [
+    "predictive state observer",
+    "forward model",
+    "sensorimotor delay",
+    "adaptive correction gain",
+    "musculoskeletal simulation",
+    "MyoSuite"
+  ],
+  "language": "eng",
+  "communities": [],
+  "notes": "The software is licensed under Apache-2.0. The included manuscript is a separate work and follows the license stated on its bioRxiv record."
+}

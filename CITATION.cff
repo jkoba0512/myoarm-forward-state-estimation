@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the archived software release and the associated manuscript."
+title: "myoarm-forward-state-estimation"
+type: software
+version: 0.1.0
+authors:
+  - family-names: Kobayashi
+    given-names: Jun
+    orcid: "https://orcid.org/0009-0002-6318-2617"
+    affiliation: Kyushu Institute of Technology
+repository-code: "https://github.com/jkoba0512/myoarm-forward-state-estimation"
+url: "https://github.com/jkoba0512/myoarm-forward-state-estimation"
+license: Apache-2.0
+keywords:
+  - predictive state observer
+  - forward model
+  - sensorimotor delay
+  - adaptive correction gain
+  - musculoskeletal simulation
+  - MyoSuite
+preferred-citation:
+  type: article
+  title: "How a Predictive State Observer Can Self-Adapt Its Sensory Prediction-Error Correction Gain: Closed-Loop Evidence from a Muscle-Driven Reaching Task"
+  authors:
+    - family-names: Kobayashi
+      given-names: Jun
+      orcid: "https://orcid.org/0009-0002-6318-2617"
+  year: 2026
+  notes: "bioRxiv preprint submitted; DOI pending"

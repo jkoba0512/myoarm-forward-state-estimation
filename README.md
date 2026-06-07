@@ -1,193 +1,151 @@
 # myoarm-forward-state-estimation
 
-Forward-model-based predictive state estimation for the MyoSuite
-myoArm reaching task under sensorimotor delay, observation noise, and
-signal-dependent motor noise. The estimator is a minimal observer
-that combines forward-model prediction with a scalar sensory
-prediction-error correction gain $K$; it uses an innovation-update
-form structurally familiar from Kalman filtering but does not
-propagate covariances or compute an optimal Kalman gain.
+Reproduction code for forward-model-based predictive state observation in
+the MyoSuite myoArm reaching task under sensory delay and observation noise.
+The observer combines learned forward prediction with sensory
+prediction-error correction and can adapt field-wise correction gains from
+innovation history and closed-loop reaching outcomes.
 
-This repository accompanies the manuscript
+This repository accompanies:
 
-> **When Should a Predictive State Observer Trust Its Forward Model?
-> Closed-Loop Evidence from a Muscle-Driven Reaching Task**
+> **How a Predictive State Observer Can Self-Adapt Its Sensory
+> Prediction-Error Correction Gain: Closed-Loop Evidence from a
+> Muscle-Driven Reaching Task**
 > Jun Kobayashi, Kyushu Institute of Technology.
 
-Compiled manuscript: [`paper/main.pdf`](paper/main.pdf) (11 pages, IEEE TNNLS draft).
+The manuscript was submitted to bioRxiv on June 3, 2026
+(`BIORXIV/2026/729790`; DOI pending) and is prepared for submission to
+*Biological Cybernetics*. The compiled 19-page manuscript is available at
+[`paper/main.pdf`](paper/main.pdf).
 
-## What the paper claims
+## Main findings
 
-A learned condition-level correction-gain predictor for the myoArm
-reaching task behaves very differently depending on which *oracle* it
-is trained against:
-
-- **C1**: the open-loop oracle $K^{\star}_{\mathrm{ol}}$ (minimises
-  estimation error $\|\hat x - x\|^2$) collapses to $K{=}1$ at long
-  delay because forward-model rollout error compounds faster than
-  observation noise.
-- **C2**: at a single (low-noise, large-delay) cell the predictor
-  trained on $K^{\star}_{\mathrm{ol}}$ outputs $K{\approx}0.99$ and
-  edges past $K{=}1$ by 8.6 cm in final-tip error (the per-cell paired
-  $t$-test gives $p{=}0.21$; we report this as a marginal cell-level
-  effect, not a robust improvement).
-- **C3**: when the forward model is retrained with $H$-step rollout
-  supervision ($H{\in}\{4,8\}$), the closed-loop optimum flips to
-  prediction-only ($K{=}0$), which beats $K{=}1$ by 12–24 cm on the
-  focused joint-PD grid under the min-tip objective. The predictor
-  still outputs $K{\approx}1$ because the open-loop oracle never picks
-  $K{=}0$.
-- **C4**: replacing the predictor's training oracle with the
-  closed-loop oracle $K^{\star}_{\mathrm{cl}}$ (per-cell argmin of
-  closed-loop task error) and retraining the same MLP unchanged moves
-  the output to $K{\approx}0.02$ and recovers 40–60\,% of the gap;
-  Appendix E demonstrates the transfer to a variable-target variant.
-
-The take-away: **what you train the gain predictor against matters at
-least as much as the predictor architecture**. Learned-correction-gain
-papers should specify the oracle target explicitly and report
-closed-loop, not just open-loop, task error.
+- The best fixed correction gain depends on delay: intermediate gains
+  (`K = 0.25-0.50`) are best without delay, while `K = 1.0` is best at an
+  18-step delay.
+- Prediction-only deployment (`K = 0`) is a diagnostic failure mode rather
+  than the oracle. It is 1.9-6.1 cm worse than the best fixed gain and
+  exhibits large controller residuals caused by autoregressive model drift.
+- Outcome-trained reliability adaptation improves delayed reaches by
+  1.9-2.5 cm over the default reliability rule while remaining neutral in
+  no-delay cells.
+- A feature-conditioned adapter nearly matches a per-cell trained diagnostic
+  in five of six cells, but both remain 1.4-1.8 cm behind the fixed-gain
+  oracle at the 18-step delay.
 
 ## Quick start
 
-```bash
-# 1. Install (uv is required; tested with Python 3.11)
-uv sync
+Requirements: Python 3.11 and [uv](https://docs.astral.sh/uv/).
 
-# 2. Verify the package imports
+```bash
+uv sync --locked
 uv run python -c "import myoarm_fse; print(myoarm_fse.__version__)"
-
-# 3. Run a single-cell smoke closed-loop episode
 uv run python scripts/evaluate_closed_loop.py \
-    --config configs/closed_loop/joint_pd_mvp.yaml --smoke
+  --config configs/closed_loop/smoke_stabilized_endpoint.yaml \
+  --smoke
 ```
 
-## Reproduce the headline numbers
-
-The full pipeline is config-driven. To reproduce the ReachFixed C3/C4
-result (the central finding in §4.5–4.6 of the paper):
+Run the default test suite:
 
 ```bash
-# 1. Collect transition data (≈10 min)
-uv run python scripts/generate_targets.py --config configs/targets/default.yaml
-for ctrl in default lowamp_random hold; do
-    uv run python scripts/collect_episodes.py \
-        --config configs/episodes/$ctrl.yaml
+uv run pytest -q
+```
+
+Tests marked `myosuite` require a working MyoSuite and MuJoCo runtime and are
+excluded by default.
+
+## R3 reproduction path
+
+The current paper uses the IK-filtered reachable target set, an H=8 residual
+MLP forward model, and the stabilized endpoint probe controller.
+
+```bash
+# 1. Generate the training and below-shoulder evaluation target sets.
+uv run python scripts/generate_reachable_targets.py \
+  --env-id myoArmReachRandom-v0 --split reachable_train \
+  --n 200 --threshold 0.01 --generator-seed 0 --seed-offset 30000
+uv run python scripts/generate_reachable_targets.py \
+  --env-id myoArmReachRandom-v0 --split reachable_train \
+  --n 200 --threshold 0.01 --generator-seed 0 --seed-offset 30000 \
+  --max-target-z 1.393
+
+# Update the target_set paths in the configs to the generated locations,
+# then collect the three 50-episode transition batches.
+for config in reachable_default reachable_lowamp_random reachable_hold; do
+  uv run python scripts/collect_episodes.py \
+    --config "configs/episodes/${config}.yaml"
 done
-# Concatenate into runs/datasets/expanded.npz
-# (see configs/models/mlp_expanded.yaml comment for the build step)
 
-# 2. Train the H=8 multi-step forward model (≈15 min CPU)
+# 2. Assemble the dataset and train the H=8 forward model.
+uv run python scripts/build_dataset.py \
+  --episodes runs/episodes/<default-run> \
+             runs/episodes/<lowamp-run> \
+             runs/episodes/<hold-run> \
+  --output runs/datasets/expanded_reachable.npz
 uv run python scripts/train_forward_model.py \
-    --config configs/models/mlp_expanded_multistep8.yaml
+  --config configs/models/mlp_reachable_h8.yaml
 
-# 3. Open-loop stress eval on the H=8 model (≈30 min)
-uv run python scripts/evaluate_estimator.py \
-    --config configs/estimators/fixed_kalman_stress.yaml \
-    --forward-model runs/models/<H8_id>
-
-# 4. Stage A predictor trained on the open-loop oracle (≈5 min)
-uv run python scripts/train_learned_gain.py \
-    --config configs/estimators/learned_gain_stress.yaml \
-    --oracle-table runs/estimators/<stress_id>/best_by_condition.csv
-
-# 5. Closed-loop K-sweep to obtain K*_cl per cell (≈30 min)
+# 3. Evaluate the fixed-gain closed-loop oracle.
 uv run python scripts/evaluate_closed_loop.py \
-    --config configs/closed_loop/joint_pd_mvp_phaseBprime.yaml
-uv run python scripts/evaluate_closed_loop.py \
-    --config configs/closed_loop/closed_loop_oracle_sweep.yaml
+  --config configs/closed_loop/oracle_k_sweep_r3_v2.yaml
 
-# 6. Stage A predictor trained on the closed-loop oracle (≈5 min)
-#    (build the K*_cl labels CSV from step 5 outputs, then:)
-uv run python scripts/train_learned_gain.py \
-    --config configs/estimators/learned_gain_stress.yaml \
-    --oracle-table runs/estimators/<kcl_labels>.csv
+# 4. Train and deploy outcome-adaptive observers.
+uv run python scripts/train_reliability_adaptive_v2.py \
+  --config configs/train/reliability_adaptive_v2_poc_r3_v2.yaml
+uv run python scripts/train_reliability_adaptive_v2.py \
+  --config configs/train/reliability_adaptive_v2_fullgrid_r3_v2.yaml
 
-# 7. Final closed-loop comparison (≈10 min)
-uv run python scripts/evaluate_closed_loop.py \
-    --config configs/closed_loop/joint_pd_mvp_phaseC.yaml
+# 5. Regenerate paper figures from the frozen run identifiers.
+uv run python scripts/make_r3_paper_figures.py
 ```
 
-The ReachRandom transfer test (Appendix E) follows the same flow with
-`configs/episodes/random_arm_*_smol.yaml` and
-`configs/estimators/random_arm_stress_smol.yaml`.
+The exact run identifiers used for each claim and figure are frozen in
+Appendix C of [`paper/main.tex`](paper/main.tex). Local experimental outputs
+under `runs/` are intentionally gitignored; the scripts and configurations
+regenerate them.
 
-## Paper figures and tables
-
-```bash
-# Regenerate F2-F7 and the tidied per-figure CSVs
-uv run python scripts/make_paper_figures.py
-```
-
-Outputs land in `figures/` (PDF + PNG) and `figures/data/` (CSVs).
-
-## Layout
+## Repository layout
 
 ```text
-paper/             Manuscript + cover letter + submission checklist
-  main.tex / .pdf  the 11-page TNNLS draft
-  refs.bib         15 references, verified
-  cover_letter.tex Cover letter for TNNLS submission
-  SUBMISSION.md    Pre-submission checklist
-docs/              Background docs (implementation plan, paper outline, primer)
-src/myoarm_fse/    Python package
-  envs/            Env factory, state schema, observation wrappers
-  data/            Episode logger, rollout helpers
-  models/          Forward-model architecture, training, dataset
-  estimators/      Predictive state observer, learned-gain predictor (Stage A / B). Python module names retain `kalman` for historical reasons; the conceptual entity is a forward-model-based observer.
-  controllers/     Heuristic, joint-PD+IK, behaviour-cloning
-  evaluation/      Open-loop and closed-loop evaluators
-  metrics/         Reaching metrics
-scripts/           CLI entry points (one per pipeline step)
-configs/           YAML configs (episodes/, models/, estimators/, closed_loop/)
-figures/           F1 (TikZ inside paper) + F2-F7 (PDF/PNG outputs)
-tests/             Pytest suite (631 tests; `uv run pytest`)
-runs/              Local outputs (gitignored)
+src/myoarm_fse/    Environment, models, observers, controllers, and metrics
+scripts/           Dataset, training, evaluation, diagnostics, and figures
+configs/           YAML configurations for every pipeline stage
+tests/             Unit and integration tests
+figures/           Current paper figures and selected historical figures
+paper/             Biological Cybernetics manuscript source and PDF
+docs/              Design, implementation, and release documentation
+runs/              Local generated outputs; not committed
 ```
 
-## Key design decisions
+## Reproducibility notes
 
-These are documented in `docs/02_InitialImplementationPlan.md`:
+- The controller receives only the estimated state. True state is retained
+  for evaluation and is never passed into the closed-loop policy.
+- The state is the 83-dimensional vector
+  `[q, qdot, activation, tip_position, target_position, reach_error]`.
+- Muscle excitation in `[0, 1]`, Gym API action in `[-1, 1]`, MuJoCo
+  control, and muscle activation are distinct signals throughout the code.
+- Random child seeds are derived from a fixed master seed using
+  `numpy.random.SeedSequence`.
 
-- `api_action` (Gym/MyoSuite `[-1, 1]^n`) ≠ `neural_command` ≠ `excitation`
-  (canonical `[0, 1]^n`) ≠ `activation` (muscle internal state) ≠ `ctrl`
-  (MyoSuite internal final). Mixing these silently breaks everything.
-- `true_state` is never passed to the controller in closed loop. Only
-  estimator output flows downstream; the true state is logged for
-  evaluation only.
-- The fixed-lag predictive state observer uses a length-$(d{+}1)$ ring
-  buffer and re-rolls past estimates forward via the learned forward
-  model — it is the buffered RTS smoother form specialised to a single
-  scalar correction gain (no covariance propagation).
-- The state vector is the 83-dim flat schema $[q, \dot q, a, p_{\mathrm{tip}},
-  p_{\mathrm{tgt}}, e]$; the controllers see this state through the
-  estimator only.
+## Citation and archival
 
-## Reproducibility
+`CITATION.cff` contains machine-readable citation metadata. A versioned
+Zenodo DOI will be added after the first R3 GitHub Release is archived.
+The bioRxiv DOI identifies the manuscript; the Zenodo DOI identifies the
+software snapshot.
 
-- Python 3.11, PyTorch (CPU), MuJoCo 2.3, MyoSuite 2.12.2,
-  Gymnasium 0.29.
-- All training is single-process on a 32-core workstation; no GPU is
-  required. A full reproduction (episode collection + 3 forward
-  models + 2 stress evals + Stage A × 2 + closed-loop eval) takes
-  3–5 hours.
-- Seeds: `seed: 0` is hard-coded in every config; per-episode child
-  seeds are derived from `numpy.random.SeedSequence(seed_master).spawn`.
+## License
 
-## Citation
+Software, configurations, and original project documentation are licensed
+under the [Apache License 2.0](LICENSE).
 
-```bibtex
-@unpublished{kobayashi2026myoarmfse,
-  title  = {When Should a Predictive State Observer Trust Its Forward Model?
-            Closed-Loop Evidence from a Muscle-Driven Reaching Task},
-  author = {Kobayashi, Jun},
-  year   = {2026},
-  note   = {Manuscript under review at IEEE Transactions on Neural
-            Networks and Learning Systems.},
-}
-```
+The manuscript in `paper/main.tex` and `paper/main.pdf` is a separate work
+and follows the license stated on its bioRxiv record (CC BY-NC-ND 4.0 for
+the submitted preprint). Bundled Springer Nature template files and
+attributed third-party images retain their upstream terms.
 
 ## Contact
 
-Jun Kobayashi — `kobayashi.jun184@m.kyutech.ac.jp`
-Kyushu Institute of Technology, Iizuka, Fukuoka, Japan.
+Jun Kobayashi, Kyushu Institute of Technology
+`kobayashi.jun184@m.kyutech.ac.jp`

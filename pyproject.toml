@@ -1,9 +1,24 @@
 [project]
 name = "myoarm-forward-state-estimation"
 version = "0.1.0"
-description = "Forward model and Kalman-like state estimation experiments for MyoSuite myoArm reaching."
+description = "Predictive state observation and adaptive correction-gain experiments for MyoSuite myoArm reaching."
 readme = "README.md"
 requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [
+  { name = "Jun Kobayashi", email = "kobayashi.jun184@m.kyutech.ac.jp" },
+]
+keywords = [
+  "forward-model",
+  "state-estimation",
+  "sensorimotor-delay",
+  "myosuite",
+]
+classifiers = [
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Scientific/Engineering",
+]
 dependencies = [
   "gymnasium>=1.2.0",
   "myosuite>=2.12.1",
