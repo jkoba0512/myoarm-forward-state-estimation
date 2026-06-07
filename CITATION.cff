@@ -3,6 +3,7 @@ message: "If you use this software, please cite the archived software release an
 title: "myoarm-forward-state-estimation"
 type: software
 version: 0.1.1
+doi: 10.5281/zenodo.20580477
 authors:
   - family-names: Kobayashi
     given-names: Jun
