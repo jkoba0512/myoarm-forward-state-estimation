@@ -1,5 +1,7 @@
 # myoarm-forward-state-estimation
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20580300.svg)](https://doi.org/10.5281/zenodo.20580300)
+
 Reproduction code for forward-model-based predictive state observation in
 the MyoSuite myoArm reaching task under sensory delay and observation noise.
 The observer combines learned forward prediction with sensory
@@ -130,8 +132,12 @@ runs/              Local generated outputs; not committed
 
 ## Citation and archival
 
-`CITATION.cff` contains machine-readable citation metadata. A versioned
-Zenodo DOI will be added after the first R3 GitHub Release is archived.
+`CITATION.cff` contains machine-readable citation metadata. The exact
+software snapshot used for the current manuscript is archived as
+[Zenodo version 0.1.0](https://doi.org/10.5281/zenodo.20580300). The
+[concept DOI](https://doi.org/10.5281/zenodo.20580299) resolves to the
+latest archived software release.
+
 The bioRxiv DOI identifies the manuscript; the Zenodo DOI identifies the
 software snapshot.
 
