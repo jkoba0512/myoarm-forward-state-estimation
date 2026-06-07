@@ -1,6 +1,6 @@
 # myoarm-forward-state-estimation
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20580300.svg)](https://doi.org/10.5281/zenodo.20580300)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20580299.svg)](https://doi.org/10.5281/zenodo.20580299)
 
 Reproduction code for forward-model-based predictive state observation in
 the MyoSuite myoArm reaching task under sensory delay and observation noise.
@@ -132,11 +132,10 @@ runs/              Local generated outputs; not committed
 
 ## Citation and archival
 
-`CITATION.cff` contains machine-readable citation metadata. The exact
-software snapshot used for the current manuscript is archived as
-[Zenodo version 0.1.0](https://doi.org/10.5281/zenodo.20580300). The
-[concept DOI](https://doi.org/10.5281/zenodo.20580299) resolves to the
-latest archived software release.
+`CITATION.cff` contains machine-readable citation metadata. The
+[Zenodo concept DOI](https://doi.org/10.5281/zenodo.20580299) resolves to
+the latest archived software release. Version-specific DOIs identify exact
+software snapshots.
 
 The bioRxiv DOI identifies the manuscript; the Zenodo DOI identifies the
 software snapshot.
@@ -146,10 +145,11 @@ software snapshot.
 Software, configurations, and original project documentation are licensed
 under the [Apache License 2.0](LICENSE).
 
-The manuscript in `paper/main.tex` and `paper/main.pdf` is a separate work
-and follows the license stated on its bioRxiv record (CC BY-NC-ND 4.0 for
-the submitted preprint). Bundled Springer Nature template files and
-attributed third-party images retain their upstream terms.
+The manuscript in `paper/main.tex` and `paper/main.pdf` is a separate work,
+is excluded from GitHub/Zenodo software release archives, and follows the
+license stated on its bioRxiv record (CC BY-NC-ND 4.0 for the submitted
+preprint). Bundled Springer Nature template files and attributed third-party
+images retain their upstream terms.
 
 ## Contact
 

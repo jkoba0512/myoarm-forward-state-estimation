@@ -28,12 +28,18 @@ R3 rerun and does not represent the current manuscript.
    ```
 
 4. Confirm that the worktree is clean and the release commit is pushed.
-5. Create an annotated version tag, initially `v0.1.0`. Do not reuse or
+5. Confirm that the source archive excludes manuscript files:
+
+   ```bash
+   git archive --format=tar HEAD | tar -tf - | grep '^paper/' && exit 1 || true
+   ```
+
+6. Create an annotated version tag. Do not reuse or
    move an existing tag after Zenodo has archived it.
-6. Push the tag and create a GitHub Release from that exact tag.
-7. Wait for Zenodo to archive the release.
-8. Verify the creator, ORCID, title, version, license, and files on Zenodo.
-9. Record both the version DOI and concept DOI in the repository.
+7. Push the tag and create a GitHub Release from that exact tag.
+8. Wait for Zenodo to archive the release.
+9. Verify the creator, ORCID, title, version, license, and files on Zenodo.
+10. Record both the version DOI and concept DOI in the repository.
 
 ## DOI policy
 
@@ -48,7 +54,7 @@ R3 rerun and does not represent the current manuscript.
 ## Licensing
 
 Repository software, configurations, and original project documentation are
-licensed under Apache-2.0. `paper/main.tex` and `paper/main.pdf` are separate
-manuscript works and follow the license shown on the bioRxiv record. Bundled
-Springer Nature template files and attributed third-party images retain their
-upstream terms.
+licensed under Apache-2.0. `paper/` is marked `export-ignore` and must not
+appear in a GitHub/Zenodo software archive. The manuscript is distributed
+separately through bioRxiv under the license shown on its record. Bundled
+third-party images retain their upstream terms.

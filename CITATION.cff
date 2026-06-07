@@ -2,8 +2,7 @@ cff-version: 1.2.0
 message: "If you use this software, please cite the archived software release and the associated manuscript."
 title: "myoarm-forward-state-estimation"
 type: software
-version: 0.1.0
-doi: 10.5281/zenodo.20580300
+version: 0.1.1
 authors:
   - family-names: Kobayashi
     given-names: Jun

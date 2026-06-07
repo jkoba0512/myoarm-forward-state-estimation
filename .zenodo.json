@@ -1,8 +1,8 @@
 {
   "title": "myoarm-forward-state-estimation",
-  "description": "Reproduction code, configurations, tests, and manuscript artifacts for closed-loop predictive state observation and outcome-trained correction-gain adaptation in a MyoSuite myoArm reaching task.",
+  "description": "Reproduction code, configurations, tests, and generated figure artifacts for closed-loop predictive state observation and outcome-trained correction-gain adaptation in a MyoSuite myoArm reaching task.",
   "upload_type": "software",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "creators": [
     {
       "name": "Kobayashi, Jun",
@@ -22,5 +22,5 @@
   ],
   "language": "eng",
   "communities": [],
-  "notes": "The software is licensed under Apache-2.0. The included manuscript is a separate work and follows the license stated on its bioRxiv record."
+  "notes": "The software archive is licensed under Apache-2.0. Manuscript files are maintained in the GitHub repository for transparency but are excluded from software release archives and distributed separately through bioRxiv."
 }

@@ -1,6 +1,6 @@
 [project]
 name = "myoarm-forward-state-estimation"
-version = "0.1.0"
+version = "0.1.1"
 description = "Predictive state observation and adaptive correction-gain experiments for MyoSuite myoArm reaching."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -43,6 +43,11 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/myoarm_fse"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "/paper",
+]
 
 [tool.ruff]
 line-length = 100
