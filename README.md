@@ -15,10 +15,11 @@ This repository accompanies:
 > Muscle-Driven Reaching Task**
 > Jun Kobayashi, Kyushu Institute of Technology.
 
-The manuscript was submitted to bioRxiv on June 3, 2026
-(`BIORXIV/2026/729790`; DOI pending) and is prepared for submission to
-*Biological Cybernetics*. The compiled 19-page manuscript is available at
-[`paper/main.pdf`](paper/main.pdf).
+The manuscript was posted to bioRxiv on June 3, 2026
+(`BIORXIV/2026/729790`;
+[doi:10.64898/2026.06.03.729790](https://doi.org/10.64898/2026.06.03.729790))
+and is prepared for submission to *Biological Cybernetics*. The compiled
+19-page manuscript is available at [`paper/main.pdf`](paper/main.pdf).
 
 ## Main findings
 

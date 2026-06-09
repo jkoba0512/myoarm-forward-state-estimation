@@ -21,6 +21,14 @@
     "MyoSuite"
   ],
   "language": "eng",
+  "related_identifiers": [
+    {
+      "identifier": "10.64898/2026.06.03.729790",
+      "relation": "isSupplementTo",
+      "resource_type": "publication-preprint",
+      "scheme": "doi"
+    }
+  ],
   "communities": [],
   "notes": "The software archive is licensed under Apache-2.0. Manuscript files are maintained in the GitHub repository for transparency but are excluded from software release archives and distributed separately through bioRxiv."
 }

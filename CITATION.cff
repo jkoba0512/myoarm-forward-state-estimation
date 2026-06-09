@@ -22,9 +22,11 @@ keywords:
 preferred-citation:
   type: article
   title: "How a Predictive State Observer Can Self-Adapt Its Sensory Prediction-Error Correction Gain: Closed-Loop Evidence from a Muscle-Driven Reaching Task"
+  doi: 10.64898/2026.06.03.729790
+  url: "https://www.biorxiv.org/content/10.64898/2026.06.03.729790v1"
   authors:
     - family-names: Kobayashi
       given-names: Jun
       orcid: "https://orcid.org/0009-0002-6318-2617"
   year: 2026
-  notes: "bioRxiv preprint submitted; DOI pending"
+  notes: "bioRxiv preprint, version 1"
